@@ -340,6 +340,29 @@ pre{
   .p-answers h2{font-size:13pt;color:#234257;border-bottom:2px solid #89B2AE;padding-bottom:4px;margin-bottom:4mm}
   .p-answers ol{columns:2;column-gap:12mm;padding-left:6mm;font-size:10.5pt}
   .p-answers li{margin-bottom:1.5mm;break-inside:avoid}
+
+  /* 단어장 인쇄 */
+  .pw{
+    break-inside:avoid;page-break-inside:avoid;
+    padding:2.5mm 0;border-bottom:1px solid #E4EBD5;
+  }
+  .pw .pw-head{display:flex;align-items:baseline;gap:4mm;margin-bottom:1mm}
+  .pw .pw-word{font-size:12pt;font-weight:800;color:#234257}
+  .pw .pw-no{font-size:9pt;color:#89B2AE;font-weight:700;min-width:8mm}
+  .pw .pw-sense{margin:1mm 0 1mm 8mm}
+  .pw .pw-mean{font-weight:700;font-size:10.5pt;color:#293E3F}
+  .pw .pw-ex{margin-left:4mm;font-size:10pt;color:#333}
+  .pw .pw-ex .k{color:#5B818E;font-size:9.5pt}
+  .pw .pw-memo{
+    margin:1.5mm 0 0 8mm;font-size:9.5pt;color:#3C5B4F;
+    background:#EEF4DE;border-left:2.5px solid #89B2AE;padding:1.5mm 3mm;
+  }
+  .pw u{text-decoration:underline;font-weight:700}
+  .pw-groupname{
+    font-size:12pt;color:#234257;font-weight:800;margin:4mm 0 2mm;
+    border-bottom:2px solid #BFD37A;padding-bottom:1.5mm;break-after:avoid;page-break-after:avoid;
+  }
+  .pw-newpage{break-before:page;page-break-before:always}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media (max-width:520px){
@@ -413,6 +436,14 @@ pre{
         <input id="newGroupName" placeholder="예: DAY 1, Chapter 3" style="flex:1;min-width:180px">
         <button class="btn" onclick="addGroup()">그룹 추가</button>
       </div>
+      <div class="row" style="margin-top:10px;padding-top:10px;border-top:1.5px solid var(--line)">
+        <select id="printBookScope" style="flex:1;min-width:150px"></select>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="printHideMeaning" style="width:auto"> 뜻 가리기(시험용)
+        </label>
+        <button class="btn teal" onclick="printBook()">🖨 단어장 PDF로 뽑기</button>
+      </div>
+      <div class="muted" style="margin-top:6px">예문·예문 뜻·메모까지 A4에 보기 좋게 정리돼요 (단어가 페이지 경계에서 잘리지 않아요)</div>
     </div>
     <div class="group-list" id="groupList"></div>
     <div id="bookBody"></div>
@@ -436,6 +467,7 @@ pre{
           </select>
         </div>
         <button class="btn green" style="width:100%" onclick="startStudy()">암기 시작</button>
+        <div id="studyResumeInfo" class="muted" style="margin-top:8px;text-align:center"></div>
       </div>
     </div>
     <div id="studyRun" style="display:none"></div>
@@ -585,10 +617,11 @@ let user = null, db = null, fb = null, unsubscribe = null;
 let saveTimer = null;
 
 function blank(){
-  return { groups: [], daily: {}, tests: [], updatedAt: 0 };
+  return { groups: [], daily: {}, tests: [], progress: {}, updatedAt: 0 };
 }
 /* 구버전(단일 뜻) 데이터를 다의어 구조(senses)로 변환 */
 function migrate(d){
+  if(!d.progress || typeof d.progress!=='object') d.progress={};
   (d.groups||[]).forEach(g=>{
     (g.words||[]).forEach(w=>{
       if(!Array.isArray(w.senses)){
@@ -738,7 +771,15 @@ function markMemorized(wordId){
 
 /* ================= 렌더: 공통 ================= */
 function renderAll(){
-  renderHome(); renderGroups(); renderBook(); renderScopeSelects(); renderConfusing(); renderHistory();
+  renderHome(); renderGroups(); renderBook(); renderScopeSelects(); renderConfusing(); renderHistory(); renderResumeInfo();
+}
+function renderResumeInfo(){
+  const el=$('studyResumeInfo'); if(!el) return;
+  const scope=$('studyScope').value||'__all__';
+  const saved=loadProgress(progressKey(scope,false));
+  el.innerHTML = saved
+    ? `🔖 저장된 진도: ${saved.idx} / ${saved.words.length}개 완료 — 시작하면 이어서 할지 물어봐요`
+    : '';
 }
 function renderHome(){
   const s = calcStreak();
@@ -1045,7 +1086,7 @@ window.saveBulk = function(){
 function renderScopeSelects(){
   const opts = `<option value="__all__">전체</option>` +
     state.groups.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.words.length})</option>`).join('');
-  ['studyScope','confScope','quizScope'].forEach(id=>{
+  ['studyScope','confScope','quizScope','printBookScope'].forEach(id=>{
     const el=$(id); const prev=el.value;
     el.innerHTML=opts;
     if([...el.options].some(o=>o.value===prev)) el.value=prev;
@@ -1064,35 +1105,108 @@ function findWord(id){
 }
 
 /* ================= 암기 모드 ================= */
-let studyQueue=[], studyIdx=0, studyRevealed=false;
-window.startStudy = function(){
+let studyQueue=[], studyIdx=0, studyRevealed=false, studyKey=null, studyLabel='';
+function progressKey(scope, confusingOnly){ return (confusingOnly?'conf:':'grp:')+scope; }
+function saveProgress(){
+  if(!studyKey) return;
+  if(!state.progress) state.progress={};
+  if(studyIdx>=studyQueue.length){ delete state.progress[studyKey]; }
+  else state.progress[studyKey]={
+    ids:studyQueue.map(w=>w.id), idx:studyIdx,
+    nextId:studyQueue[studyIdx].id,   // 단어가 삭제돼도 정확히 그 자리로 복귀
+    ts:Date.now(), label:studyLabel
+  };
+  state.updatedAt=Date.now(); persistLocal();
+  if(user&&db){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>fb.setDoc(fb.doc(db,'users',user.uid),state).catch(console.error),700); }
+}
+/* 저장된 진도가 아직 유효한지 확인(삭제된 단어 정리) */
+function loadProgress(key){
+  const p=(state.progress||{})[key];
+  if(!p) return null;
+  const ws=p.ids.map(id=>{
+    const w=findWord(id);
+    if(!w) return null;
+    const g=state.groups.find(gg=>gg.words.some(x=>x.id===id));
+    return {...w, groupId:g?.id, groupName:g?.name};
+  }).filter(Boolean);
+  if(ws.length<2) return null;
+  let idx = p.nextId ? ws.findIndex(w=>w.id===p.nextId) : -1;
+  if(idx<0) idx = p.idx;                    // 그 단어가 삭제됐다면 저장된 번호로 대체
+  if(idx>=ws.length) return null;           // 이미 다 끝난 진도
+  return {words:ws, idx};
+}
+window.startStudy = function(mode, confusingOnly=false){
   const scope=$('studyScope').value;
-  let ws = wordsInScope(scope);
-  if(!ws.length) return toast('이 범위에 단어가 없어요');
-  if($('studyOrder').value==='shuffle') ws=shuffle(ws);
-  studyQueue=ws; studyIdx=0; studyRevealed=false;
+  const key=progressKey(scope, confusingOnly);
+  const saved=loadProgress(key);
+  if(saved && mode!=='restart'){
+    // 이어서 할지 물어보기
+    $('studySetup').style.display='none';
+    $('studyRun').style.display='block';
+    $('studyRun').innerHTML=`<div class="study-card">
+      <div style="font-size:2.4rem">🔖</div>
+      <h2 style="margin:0">이어서 학습할까요?</h2>
+      <p class="muted">${esc(saved.words[saved.idx].word)} 부터 · ${saved.idx} / ${saved.words.length}개 완료</p>
+      <div class="study-btns">
+        <button class="btn green" onclick="resumeStudy('${key}')">▶ 이어서 하기</button>
+        <button class="btn ghost" onclick="startStudy('restart',${confusingOnly})">처음부터 다시</button>
+      </div>
+      <div><button class="btn ghost sm" onclick="exitStudy()">범위 다시 선택</button></div>
+    </div>`;
+    return;
+  }
+  let ws = wordsInScope(scope, confusingOnly);
+  if(!ws.length) return toast(confusingOnly?'이 범위에 헷갈리는 단어가 없어요':'이 범위에 단어가 없어요');
+  if(confusingOnly || $('studyOrder').value==='shuffle') ws=shuffle(ws);
+  beginStudy(ws, 0, key, confusingOnly?'헷갈리는 단어':(scope==='__all__'?'전체':groupById(scope).name));
+};
+/* 완료/재시작 시 현재 세션 종류 유지 */
+window.restartStudy = function(){
+  startStudy('restart', String(studyKey||'').startsWith('conf:'));
+};
+window.resumeStudy = function(key){
+  const saved=loadProgress(key);
+  if(!saved) return startStudy('restart');
+  beginStudy(saved.words, saved.idx, key, (state.progress[key]||{}).label||'');
+};
+/* 헷갈리는 단어 암기 모드 (헷갈림 탭에서 호출) */
+window.startConfusingStudy = function(){
+  const scope=$('confScope').value||'__all__';
+  if(!wordsInScope(scope,true).length) return toast('헷갈리는 단어가 없어요');
+  goTab('study');
+  $('studyScope').value=scope;
+  renderResumeInfo();
+  startStudy(null, true);
+};
+function beginStudy(ws, idx, key, label){
+  studyQueue=ws; studyIdx=idx; studyRevealed=false; studyKey=key; studyLabel=label;
   $('studySetup').style.display='none';
   $('studyRun').style.display='block';
   renderStudyCard();
-};
+}
 function renderStudyCard(){
   const box=$('studyRun');
   if(studyIdx>=studyQueue.length){
+    saveProgress(); // 완료 → 진도 삭제
     const n=(state.daily[today()]||[]).length;
     box.innerHTML=`<div class="study-card">
       <div style="font-size:2.5rem">🌳</div>
       <h2 style="margin:0">이 범위를 다 봤어요!</h2>
       <p class="muted">오늘 누적 암기: <b>${n}개</b> ${n>=DAILY_GOAL?'· 오늘 학습 인정 완료 ✅':`· 목표까지 ${DAILY_GOAL-n}개`}</p>
       <div class="study-btns">
-        <button class="btn green" onclick="startStudy()">같은 범위 다시</button>
+        <button class="btn green" onclick="restartStudy()">같은 범위 다시</button>
         <button class="btn ghost" onclick="exitStudy()">범위 다시 선택</button>
       </div></div>`;
     return;
   }
   const w=studyQueue[studyIdx];
   const live=findWord(w.id)||w;
+  const pct=Math.round(studyIdx/studyQueue.length*100);
   box.innerHTML=`
-    <div class="study-progress">${studyIdx+1} / ${studyQueue.length} · ${esc(w.groupName||'')}</div>
+    <div class="study-progress">${studyIdx+1} / ${studyQueue.length} · ${esc(studyLabel||w.groupName||'')}
+      <div class="progress-wrap" style="background:#E3EBD3;max-width:320px;margin:6px auto 0">
+        <div class="progress-bar" style="width:${pct}%"></div></div>
+    </div>
     <div class="study-card">
       <div class="study-word">${esc(live.word)}</div>
       ${studyRevealed ? `
@@ -1106,10 +1220,12 @@ function renderStudyCard(){
         <button class="study-hidden" onclick="studyReveal()">뜻이 가려져 있어요 — 떠올린 뒤 눌러서 확인 👀</button>
         <div class="study-btns"><button class="btn ghost" onclick="studyNext()">건너뛰기</button></div>`}
     </div>
-    <div style="text-align:center;margin-top:12px"><button class="btn ghost sm" onclick="exitStudy()">암기 종료</button></div>`;
+    <div style="text-align:center;margin-top:12px">
+      <button class="btn ghost sm" onclick="exitStudy()">여기까지 (진도 저장하고 종료)</button>
+    </div>`;
 }
 window.studyReveal = function(){ studyRevealed=true; renderStudyCard(); };
-window.studyNext = function(){ studyIdx++; studyRevealed=false; renderStudyCard(); };
+window.studyNext = function(){ studyIdx++; studyRevealed=false; saveProgress(); renderStudyCard(); };
 window.studyMark = function(memorized){
   const w=findWord(studyQueue[studyIdx].id);
   if(w){
@@ -1117,14 +1233,17 @@ window.studyMark = function(memorized){
     else w.confusing=true;
   }
   studyIdx++; studyRevealed=false;
-  state.updatedAt=Date.now(); persistLocal();
-  if(user&&db){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>fb.setDoc(fb.doc(db,'users',user.uid),state).catch(console.error),700); }
+  saveProgress();
   renderHome(); renderStudyCard();
 };
 window.exitStudy = function(){
+  saveProgress();
+  const remain = studyKey && studyIdx<studyQueue.length;
+  studyKey=null;
   $('studyRun').style.display='none';
   $('studySetup').style.display='block';
   renderAll();
+  if(remain) toast('진도를 저장했어요 · 다음에 이어서 할 수 있어요 🔖');
 };
 
 /* ================= 헷갈림 ================= */
@@ -1137,7 +1256,10 @@ window.renderConfusing = function(){
     return;
   }
   body.innerHTML=`<div class="card">
-    <p class="muted" style="margin-bottom:10px">단어를 누르면 뜻이 보여요 · 총 ${ws.length}개</p>
+    <div class="row" style="justify-content:space-between;margin-bottom:12px">
+      <p class="muted" style="margin:0">단어를 누르면 뜻이 보여요 · 총 ${ws.length}개</p>
+      <button class="btn green sm" onclick="startConfusingStudy()">🌀 헷갈리는 단어 암기하기</button>
+    </div>
     ${ws.map(w=>`
       <div class="word-item">
         <div class="row" style="justify-content:space-between">
@@ -1157,7 +1279,12 @@ window.renderConfusing = function(){
 };
 window.resolveConfusing = function(id){
   const w=findWord(id);
-  if(w){ w.confusing=false; markMemorized(id); save(); toast('헷갈림 해제! 오늘 암기에 반영됐어요'); }
+  if(!w) return;
+  w.confusing=false;
+  markMemorized(id);          // 오늘 외운 단어로 집계 (연속 학습에 반영)
+  save();
+  const n=(state.daily[today()]||[]).length;
+  toast(`헷갈림 해제 · 오늘 ${n}/${DAILY_GOAL}개 암기 ${n>=DAILY_GOAL?'✅':''}`);
 };
 
 /* ================= 테스트 ================= */
@@ -1169,6 +1296,7 @@ function updateQuizPoolInfo(){
     `이 범위: 단어 ${ws.length}개 · 뜻 ${units.length}개 (다의어는 뜻마다 따로 출제돼요)`;
 }
 $('quizScope').addEventListener('change', updateQuizPoolInfo);
+$('studyScope').addEventListener('change', renderResumeInfo);
 
 let quiz=null;
 /* 오답 보기 고르기
@@ -1349,6 +1477,50 @@ window.exitQuiz = function(){
   updateQuizPoolInfo();
 };
 function dirLabel(d){ return d==='e2k'?'영→한':d==='k2e'?'한→영':d==='blank'?'빈칸 채우기':d==='ex2k'?'예문→뜻':'혼합'; }
+
+/* ================= 단어장 인쇄 (A4 PDF) ================= */
+window.printBook = function(){
+  const scope=$('printBookScope').value||'__all__';
+  const hide=$('printHideMeaning').checked;
+  const groups = scope==='__all__' ? state.groups : [groupById(scope)].filter(Boolean);
+  const total = groups.reduce((n,g)=>n+g.words.length,0);
+  if(!total) return toast('인쇄할 단어가 없어요');
+  const d=new Date();
+  const ds=`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+
+  const body = groups.map((g,gi)=>{
+    if(!g.words.length) return '';
+    const items = g.words.map((w,i)=>{
+      const multi=(w.senses||[]).length>1;
+      const senses=(w.senses||[]).map((s,si)=>`
+        <div class="pw-sense">
+          <div class="pw-mean">${multi?`${CIRCLED[si]||(si+1)+'.'} `:''}${hide?'&nbsp;':esc(s.meaning)}</div>
+          ${(s.examples||[]).map(e=>`
+            <div class="pw-ex">· ${highlightWord(e.en, w.word).replace(/<span class="hl">(.*?)<\/span>/g,'<u>$1</u>')}
+              ${e.ko?`<div class="k">${hide?'&nbsp;':esc(e.ko)}</div>`:''}
+            </div>`).join('')}
+        </div>`).join('');
+      return `<div class="pw">
+        <div class="pw-head"><span class="pw-no">${i+1}</span><span class="pw-word">${esc(w.word)}</span></div>
+        ${senses}
+        ${w.memo&&!hide?`<div class="pw-memo">📝 ${esc(w.memo)}</div>`:''}
+      </div>`;
+    }).join('');
+    return `<div class="${gi>0?'pw-newpage':''}">
+      <div class="pw-groupname">${esc(g.name)} <span style="font-size:9.5pt;font-weight:400;color:#5B818E">· ${g.words.length}단어</span></div>
+      ${items}
+    </div>`;
+  }).join('');
+
+  $('printSheet').innerHTML=`
+    <h1>🌱 Word Forest 단어장${hide?' (뜻 가림 · 시험용)':''}</h1>
+    <div class="p-meta">
+      <span>범위: ${scope==='__all__'?'전체':esc(groups[0].name)} · 총 ${total}단어 · ${ds}</span>
+      <span>이름: <span class="fill"></span></span>
+    </div>
+    ${body}`;
+  window.print();
+};
 
 /* ================= 인쇄용 퀴즈 (A4 PDF) ================= */
 const CIRC=['①','②','③','④'];
