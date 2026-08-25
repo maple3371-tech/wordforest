@@ -190,6 +190,32 @@ label{font-size:.85rem;font-weight:700;color:var(--slate);display:block;margin-b
   border-top:1.5px solid var(--line);display:flex;gap:10px;justify-content:flex-end;
 }
 
+/* ---------- 다의어(뜻) 블록 ---------- */
+.sense-box{
+  border:1.5px solid var(--line);border-radius:10px;padding:10px 10px 10px 34px;
+  margin-bottom:10px;background:#FBFDF5;position:relative;
+}
+.sense-no{
+  position:absolute;left:8px;top:11px;width:20px;height:20px;border-radius:50%;
+  background:var(--teal);color:#fff;font-weight:800;font-size:.72rem;
+  display:flex;align-items:center;justify-content:center;
+}
+.sense-box .del-sense{position:absolute;right:8px;top:8px;color:var(--danger);font-weight:700;font-size:.8rem}
+.sense-box .s-meaning{margin-bottom:6px;font-weight:600}
+.sense-box .add-ex-b{color:var(--slate);font-weight:700;font-size:.83rem;padding:2px 0}
+.sense-box .add-ex-b:hover{color:var(--navy)}
+
+/* 뜻 표시(단어장/암기/헷갈림) */
+.sense-view{margin-top:8px}
+.sense-view .sm{display:flex;gap:6px;align-items:baseline;color:var(--pine);font-weight:700}
+.sense-view .num{
+  flex:none;background:var(--teal);color:#fff;border-radius:50%;
+  width:19px;height:19px;font-size:.7rem;font-weight:800;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.sense-view .ex{margin-top:6px;margin-left:25px}
+.dot-hint{font-size:.78rem;color:var(--sub);margin-top:6px}
+
 /* ---------- 암기 카드 ---------- */
 .study-card{
   background:var(--card);border:1.5px solid var(--line);border-radius:18px;
@@ -439,12 +465,13 @@ pre{
         <div class="form-field">
           <label>문제 유형</label>
           <select id="quizDir">
+            <option value="ex2k">예문 보고 한글 뜻 고르기 (다의어 구분)</option>
             <option value="e2k">영어 보고 한글 뜻 고르기</option>
             <option value="k2e">한글 보고 영어 단어 고르기</option>
             <option value="mix">객관식 섞어서 출제</option>
             <option value="blank">예문 빈칸 채우기 (주관식)</option>
           </select>
-          <div class="muted" style="margin-top:4px">빈칸 채우기는 예문 속 형태 그대로(시제·복수 포함) 정확히 입력해야 정답이에요.</div>
+          <div class="muted" style="margin-top:4px">뜻이 여러 개인 단어는 뜻마다 따로 출제돼요 · 빈칸 채우기는 예문 속 형태 그대로(시제·복수 포함) 정확히 입력해야 정답이에요.</div>
         </div>
         <div class="form-field">
           <label>문제 수</label>
@@ -472,12 +499,12 @@ pre{
 <div class="modal-back" id="wordModal">
   <div class="modal">
     <h2><span id="wordModalTitle">단어 추가</span><button class="close-x" onclick="closeWordModal()">✕</button></h2>
-    <div class="form-field"><label>영어 단어 *</label><input id="fWord" placeholder="예: abundant"></div>
-    <div class="form-field"><label>뜻 *</label><input id="fMeaning" placeholder="예: 풍부한"></div>
-    <label>예문 (1개 이상)</label>
-    <div id="exList"></div>
-    <button class="btn ghost sm" onclick="addExRow()" style="margin-bottom:14px">+ 예문 추가</button>
+    <div class="form-field"><label>영어 단어 *</label><input id="fWord" placeholder="예: account for"></div>
+    <label>뜻 (여러 개 가능 — 뜻마다 예문을 따로 적어요)</label>
+    <div id="senseList"></div>
+    <button class="btn ghost sm" onclick="addSenseRow()" style="margin-bottom:14px">＋ 뜻 추가</button>
     <div class="form-field"><label>메모 (선택)</label><input id="fMemo" placeholder="유의어, 반의어, 헷갈리는 포인트 등"></div>
+    <div class="dot-hint">💡 입력 중 <b>**</b>(Shift+8 두 번)를 치면 가운데 점 <b>·</b>으로 바뀌어요.</div>
     <div class="row" style="justify-content:flex-end">
       <button class="btn ghost" onclick="closeWordModal()">취소</button>
       <button class="btn green" onclick="saveWord()">저장</button>
@@ -495,7 +522,7 @@ pre{
         <input type="number" id="bulkCount" min="1" max="200" value="10">
       </div>
       <button class="btn" onclick="makeBulkBlocks()">블록 만들기</button>
-      <span class="muted" style="flex:1;min-width:160px">블록이 쭉 생기면 채워 넣고 맨 아래 <b>전체 저장</b>을 누르세요. 비워둔 블록은 저장되지 않아요.</span>
+      <span class="muted" style="flex:1;min-width:160px">블록이 쭉 생기면 채워 넣고 맨 아래 <b>전체 저장</b>을 누르세요 · 뜻이 여러 개면 <b>＋ 뜻 추가</b>로 뜻마다 예문을 따로 적을 수 있어요 · <b>**</b>를 입력하면 <b>·</b>로 바뀌어요.</span>
     </div>
     <div id="bulkList"></div>
     <div class="bulk-foot">
@@ -560,10 +587,25 @@ let saveTimer = null;
 function blank(){
   return { groups: [], daily: {}, tests: [], updatedAt: 0 };
 }
+/* 구버전(단일 뜻) 데이터를 다의어 구조(senses)로 변환 */
+function migrate(d){
+  (d.groups||[]).forEach(g=>{
+    (g.words||[]).forEach(w=>{
+      if(!Array.isArray(w.senses)){
+        w.senses = [{ meaning: w.meaning||'', examples: w.examples||[] }];
+      }
+      w.senses = w.senses.filter(s=>s && (s.meaning||'').trim());
+      if(!w.senses.length) w.senses=[{meaning:w.meaning||'(뜻 없음)', examples:w.examples||[]}];
+      w.senses.forEach(s=>{ if(!Array.isArray(s.examples)) s.examples=[]; });
+      delete w.meaning; delete w.examples;
+    });
+  });
+  return d;
+}
 function load(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(raw){ const d = JSON.parse(raw); return Object.assign(blank(), d); }
+    if(raw){ const d = JSON.parse(raw); return migrate(Object.assign(blank(), d)); }
   }catch(e){}
   return blank();
 }
@@ -602,6 +644,43 @@ function toast(msg){
   const t=$('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),1800);
 }
+const CIRCLED=['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+/* 단어를 "뜻 단위"로 펼치기 — 다의어는 뜻마다 별도 출제 단위가 됨 */
+function senseUnits(words){
+  const out=[];
+  words.forEach(w=>{
+    (w.senses||[]).forEach((s,i)=>{
+      out.push({
+        wordId:w.id, word:w.word, memo:w.memo,
+        meaning:s.meaning, examples:s.examples||[],
+        senseIdx:i, senseCount:(w.senses||[]).length,
+        groupId:w.groupId, groupName:w.groupName
+      });
+    });
+  });
+  return out;
+}
+/* 뜻 목록을 화면에 그리기 (예문 하이라이트 포함) */
+function sensesHTML(w, exClass='ex'){
+  const multi=(w.senses||[]).length>1;
+  return (w.senses||[]).map((s,i)=>`
+    <div class="sense-view">
+      <div class="sm">${multi?`<span class="num">${i+1}</span>`:''}<span>${esc(s.meaning)}</span></div>
+      ${(s.examples||[]).map(e=>`<div class="${exClass}" ${multi?'style="margin-left:25px"':''}>${highlightWord(e.en, w.word)}<div class="ko">${esc(e.ko)}</div></div>`).join('')}
+    </div>`).join('');
+}
+
+/* ====== Shift+8 두 번(**) → 가운데 점(·) 자동 변환 ====== */
+document.addEventListener('input', e=>{
+  const t=e.target;
+  if(!t || !(t.tagName==='INPUT'||t.tagName==='TEXTAREA')) return;
+  if(t.type && !['text','search',''].includes(t.type)) return;
+  if(!t.value.includes('**')) return;
+  const pos=t.selectionStart, before=t.value;
+  t.value=before.replace(/\*\*/g,'·');
+  const diff=before.length-t.value.length;
+  try{ t.setSelectionRange(pos-diff, pos-diff); }catch(_){}
+});
 window.openSetupGuide = ()=> $('setupModal').classList.add('open');
 
 /* ============ 예문 속 단어 인식(시제·복수 변형 포함) & 하이라이트 ============ */
@@ -743,11 +822,11 @@ function renderBook(){
         <div class="row" style="justify-content:space-between">
           <div>
             <span class="w">${esc(w.word)}</span>
+            ${(w.senses||[]).length>1?`<span class="chip teal">뜻 ${w.senses.length}개</span>`:''}
             ${w.confusing?'<span class="chip badge-confusing">헷갈림</span>':''}
           </div>
         </div>
-        <div class="m">${esc(w.meaning)}</div>
-        ${w.examples.map(e=>`<div class="ex">${highlightWord(e.en, w.word)}<div class="ko">${esc(e.ko)}</div></div>`).join('')}
+        ${sensesHTML(w)}
         ${w.memo?`<div class="memo"><b>MEMO</b> ${esc(w.memo)}</div>`:''}
         <div class="word-actions">
           <button class="btn ghost sm" onclick="openWordModal('${w.id}')">수정</button>
@@ -778,48 +857,76 @@ window.deleteWord = function(id){
   save();
 };
 
-/* --- 단어 모달 --- */
+/* --- 단어 모달 (다의어 지원) --- */
 let editingWordId = null;
 window.openWordModal = function(wordId){
   editingWordId = wordId||null;
   $('wordModalTitle').textContent = wordId?'단어 수정':'단어 추가';
-  $('exList').innerHTML='';
+  $('senseList').innerHTML='';
   if(wordId){
     const w = groupById(currentGroupId).words.find(x=>x.id===wordId);
-    $('fWord').value=w.word; $('fMeaning').value=w.meaning; $('fMemo').value=w.memo||'';
-    w.examples.forEach(e=>addExRow(e.en,e.ko));
-    if(!w.examples.length) addExRow();
+    $('fWord').value=w.word; $('fMemo').value=w.memo||'';
+    (w.senses||[]).forEach(s=>addSenseRow(s.meaning, s.examples));
+    if(!(w.senses||[]).length) addSenseRow();
   }else{
-    $('fWord').value=''; $('fMeaning').value=''; $('fMemo').value='';
-    addExRow();
+    $('fWord').value=''; $('fMemo').value='';
+    addSenseRow();
   }
   $('wordModal').classList.add('open');
   setTimeout(()=>$('fWord').focus(),50);
 };
 window.closeWordModal = ()=> $('wordModal').classList.remove('open');
-window.addExRow = function(en='',ko=''){
-  const div=document.createElement('div');
-  div.className='ex-input-row';
-  div.innerHTML=`
-    <button class="del-ex" onclick="this.parentElement.remove()">삭제</button>
+function exRowHTML(en='',ko=''){
+  return `<div class="bulk-ex">
     <input class="ex-en" placeholder="영어 예문" value="${esc(en)}">
-    <input class="ex-ko" placeholder="예문 뜻" value="${esc(ko)}">`;
-  $('exList').appendChild(div);
+    <input class="ex-ko" placeholder="예문 뜻" value="${esc(ko)}">
+    <button class="del-ex-b" onclick="this.parentElement.remove()">삭제</button>
+  </div>`;
+}
+window.addSenseRow = function(meaning='', examples=[]){
+  const list=$('senseList');
+  const div=document.createElement('div');
+  div.className='sense-box';
+  const exs = (examples&&examples.length?examples:[{en:'',ko:''}]).map(e=>exRowHTML(e.en,e.ko)).join('');
+  div.innerHTML=`
+    <div class="sense-no"></div>
+    <button class="del-sense" onclick="delSenseRow(this)">뜻 삭제</button>
+    <input class="s-meaning" placeholder="뜻 (예: (이유 등을) 설명하다)" value="${esc(meaning)}">
+    <div class="s-ex-list">${exs}</div>
+    <button class="add-ex-b" onclick="addSenseEx(this)">＋ 이 뜻의 예문 추가</button>`;
+  list.appendChild(div);
+  renumberSenses();
 };
+window.addSenseEx = function(btn){
+  btn.parentElement.querySelector('.s-ex-list').insertAdjacentHTML('beforeend', exRowHTML());
+};
+window.delSenseRow = function(btn){
+  const list=$('senseList');
+  if(list.children.length<=1) return toast('뜻은 1개 이상 있어야 해요');
+  btn.parentElement.remove();
+  renumberSenses();
+};
+function renumberSenses(){
+  [...$('senseList').children].forEach((b,i)=>{ b.querySelector('.sense-no').textContent=i+1; });
+}
 window.saveWord = function(){
-  const word=$('fWord').value.trim(), meaning=$('fMeaning').value.trim();
-  if(!word||!meaning) return toast('단어와 뜻은 필수예요');
-  const examples=[...document.querySelectorAll('#exList .ex-input-row')]
-    .map(r=>({en:r.querySelector('.ex-en').value.trim(), ko:r.querySelector('.ex-ko').value.trim()}))
-    .filter(e=>e.en||e.ko);
-  if(!examples.length) return toast('예문을 1개 이상 입력해 주세요');
+  const word=$('fWord').value.trim();
+  if(!word) return toast('단어를 입력해 주세요');
+  const senses=[...document.querySelectorAll('#senseList .sense-box')].map(b=>({
+    meaning: b.querySelector('.s-meaning').value.trim(),
+    examples: [...b.querySelectorAll('.bulk-ex')]
+      .map(r=>({en:r.querySelector('.ex-en').value.trim(), ko:r.querySelector('.ex-ko').value.trim()}))
+      .filter(e=>e.en||e.ko)
+  })).filter(s=>s.meaning);
+  if(!senses.length) return toast('뜻을 1개 이상 입력해 주세요');
+  if(senses.some(s=>!s.examples.length)) return toast('각 뜻마다 예문을 1개 이상 입력해 주세요');
   const memo=$('fMemo').value.trim();
   const g=groupById(currentGroupId);
   if(editingWordId){
     const w=g.words.find(x=>x.id===editingWordId);
-    Object.assign(w,{word,meaning,examples,memo});
+    Object.assign(w,{word,senses,memo});
   }else{
-    g.words.push({id:uid(), word, meaning, examples, memo, confusing:false});
+    g.words.push({id:uid(), word, senses, memo, confusing:false});
   }
   closeWordModal();
   save();
@@ -837,7 +944,7 @@ window.openBulkModal = function(){
   $('bulkModal').classList.add('open');
 };
 window.closeBulkModal = function(){
-  const hasInput = [...document.querySelectorAll('#bulkList .b-word, #bulkList .b-meaning')]
+  const hasInput = [...document.querySelectorAll('#bulkList .b-word, #bulkList .bs-meaning')]
     .some(i=>i.value.trim());
   if(hasInput && !confirm('입력 중인 내용이 있어요. 저장하지 않고 닫을까요?')) return;
   $('bulkModal').classList.remove('open');
@@ -851,22 +958,6 @@ window.makeBulkBlocks = function(){
   const first = document.querySelector('#bulkList .b-word');
   if(first) setTimeout(()=>first.focus(),50);
 };
-window.appendBulkBlock = function(){
-  const list = $('bulkList');
-  const idx = list.children.length + 1;
-  const div = document.createElement('div');
-  div.className = 'bulk-block';
-  div.innerHTML = `
-    <div class="bulk-idx">${idx}</div>
-    <div class="bulk-row">
-      <input class="b-word" placeholder="영어 단어">
-      <input class="b-meaning" placeholder="뜻">
-    </div>
-    <div class="b-ex-list">${bulkExRowHTML()}</div>
-    <button class="add-ex-b" onclick="addBulkEx(this)">+ 예문 추가</button>
-    <input class="b-memo" placeholder="메모 (선택) — 유의어, 반의어 등" style="margin-top:6px;font-size:.88rem;padding:8px 10px;background:#F2F7F6">`;
-  list.appendChild(div);
-};
 function bulkExRowHTML(){
   return `<div class="bulk-ex">
     <input class="b-ex-en" placeholder="영어 예문">
@@ -874,9 +965,47 @@ function bulkExRowHTML(){
     <button class="del-ex-b" onclick="this.parentElement.remove()">삭제</button>
   </div>`;
 }
+function bulkSenseHTML(){
+  return `<div class="sense-box">
+    <div class="sense-no"></div>
+    <button class="del-sense" onclick="delBulkSense(this)">뜻 삭제</button>
+    <input class="bs-meaning" placeholder="뜻">
+    <div class="b-ex-list">${bulkExRowHTML()}</div>
+    <button class="add-ex-b" onclick="addBulkEx(this)">＋ 이 뜻의 예문 추가</button>
+  </div>`;
+}
+window.appendBulkBlock = function(){
+  const list = $('bulkList');
+  const div = document.createElement('div');
+  div.className = 'bulk-block';
+  div.innerHTML = `
+    <div class="bulk-idx">${list.children.length+1}</div>
+    <input class="b-word" placeholder="영어 단어" style="margin-bottom:8px;font-weight:700">
+    <div class="b-sense-list">${bulkSenseHTML()}</div>
+    <button class="add-ex-b" onclick="addBulkSense(this)" style="color:var(--teal)">＋ 뜻 추가 (다의어)</button>
+    <input class="b-memo" placeholder="메모 (선택) — 유의어, 반의어 등" style="margin-top:6px;font-size:.88rem;padding:8px 10px;background:#F2F7F6">`;
+  list.appendChild(div);
+  renumberBulkSenses(div);
+};
+window.addBulkSense = function(btn){
+  const block=btn.closest('.bulk-block');
+  block.querySelector('.b-sense-list').insertAdjacentHTML('beforeend', bulkSenseHTML());
+  renumberBulkSenses(block);
+};
+window.delBulkSense = function(btn){
+  const block=btn.closest('.bulk-block');
+  const list=block.querySelector('.b-sense-list');
+  if(list.children.length<=1) return toast('뜻은 1개 이상 있어야 해요');
+  btn.parentElement.remove();
+  renumberBulkSenses(block);
+};
+function renumberBulkSenses(block){
+  [...block.querySelectorAll('.b-sense-list > .sense-box')].forEach((s,i)=>{
+    s.querySelector('.sense-no').textContent=i+1;
+  });
+}
 window.addBulkEx = function(btn){
-  const wrap = btn.parentElement.querySelector('.b-ex-list');
-  wrap.insertAdjacentHTML('beforeend', bulkExRowHTML());
+  btn.parentElement.querySelector('.b-ex-list').insertAdjacentHTML('beforeend', bulkExRowHTML());
 };
 window.saveBulk = function(){
   const g = groupById(currentGroupId);
@@ -885,15 +1014,17 @@ window.saveBulk = function(){
   let saved = 0, partial = 0;
   blocks.forEach(b=>{
     const word = b.querySelector('.b-word').value.trim();
-    const meaning = b.querySelector('.b-meaning').value.trim();
+    const senses = [...b.querySelectorAll('.b-sense-list > .sense-box')].map(s=>({
+      meaning: s.querySelector('.bs-meaning').value.trim(),
+      examples: [...s.querySelectorAll('.bulk-ex')]
+        .map(r=>({en:r.querySelector('.b-ex-en').value.trim(), ko:r.querySelector('.b-ex-ko').value.trim()}))
+        .filter(e=>e.en||e.ko)
+    })).filter(s=>s.meaning);
     b.classList.remove('incomplete');
-    if(!word && !meaning){ b.remove(); return; }        // 빈 블록: 조용히 제거
-    if(!word || !meaning){ partial++; b.classList.add('incomplete'); return; } // 반쪽 블록: 남겨둠
-    const examples = [...b.querySelectorAll('.bulk-ex')]
-      .map(r=>({en:r.querySelector('.b-ex-en').value.trim(), ko:r.querySelector('.b-ex-ko').value.trim()}))
-      .filter(e=>e.en||e.ko);
+    if(!word && !senses.length){ b.remove(); return; }              // 빈 블록: 조용히 제거
+    if(!word || !senses.length){ partial++; b.classList.add('incomplete'); return; } // 반쪽 블록: 남겨둠
     const memo = b.querySelector('.b-memo').value.trim();
-    g.words.push({id:uid(), word, meaning, examples, memo, confusing:false});
+    g.words.push({id:uid(), word, senses, memo, confusing:false});
     saved++;
     b.remove();
   });
@@ -965,8 +1096,7 @@ function renderStudyCard(){
     <div class="study-card">
       <div class="study-word">${esc(live.word)}</div>
       ${studyRevealed ? `
-        <div class="study-meaning">${esc(live.meaning)}</div>
-        ${live.examples.map(e=>`<div class="study-ex">${highlightWord(e.en, live.word)}<div class="ko">${esc(e.ko)}</div></div>`).join('')}
+        <div style="text-align:left">${sensesHTML(live,'study-ex')}</div>
         ${live.memo?`<div class="memo" style="text-align:left"><b>MEMO</b> ${esc(live.memo)}</div>`:''}
         <div class="study-btns">
           <button class="btn green" onclick="studyMark(true)">✅ 외웠어요</button>
@@ -1016,8 +1146,7 @@ window.renderConfusing = function(){
         </div>
         <details style="margin-top:6px">
           <summary style="cursor:pointer;color:var(--slate);font-weight:600;font-size:.9rem">뜻 보기</summary>
-          <div class="m">${esc(w.meaning)}</div>
-          ${w.examples.map(e=>`<div class="ex">${highlightWord(e.en, w.word)}<div class="ko">${esc(e.ko)}</div></div>`).join('')}
+          ${sensesHTML(w)}
           ${w.memo?`<div class="memo"><b>MEMO</b> ${esc(w.memo)}</div>`:''}
         </details>
         <div class="word-actions">
@@ -1034,52 +1163,89 @@ window.resolveConfusing = function(id){
 /* ================= 테스트 ================= */
 function updateQuizPoolInfo(){
   const scope=$('quizScope').value||'__all__';
-  const n=wordsInScope(scope).length;
-  $('quizPoolInfo').textContent=`이 범위의 단어: ${n}개 (4지선다이므로 전체 단어가 4개 이상이어야 해요)`;
+  const ws=wordsInScope(scope);
+  const units=senseUnits(ws);
+  $('quizPoolInfo').textContent=
+    `이 범위: 단어 ${ws.length}개 · 뜻 ${units.length}개 (다의어는 뜻마다 따로 출제돼요)`;
 }
 $('quizScope').addEventListener('change', updateQuizPoolInfo);
 
 let quiz=null;
+/* 오답 보기 고르기
+   - ex2k: 예문이 문맥을 주므로 같은 단어의 "다른 뜻"을 우선 배치 → 다의어 구분 훈련
+   - e2k : 단어만 보고 고르는 문제라 같은 단어의 다른 뜻은 정답이 될 수도 있어 제외 */
+function pickDistractors(target, allUnits, key, n=3, sameWordFirst=false){
+  const out=[], seen=new Set([target[key]]);
+  const sameWord = shuffle(allUnits.filter(u=>u.wordId===target.wordId && u[key]!==target[key]));
+  const otherWord = shuffle(allUnits.filter(u=>u.wordId!==target.wordId));
+  const src = sameWordFirst ? [...sameWord, ...otherWord] : otherWord;
+  for(const u of src){
+    if(seen.has(u[key])) continue;
+    out.push(u[key]); seen.add(u[key]);
+    if(out.length===n) break;
+  }
+  while(out.length<n) out.push('—');
+  return out;
+}
 function buildQuestions(scope, dir, count){
   const pool=wordsInScope(scope);
-  const all=allWords();
   if(!pool.length){ toast('이 범위에 단어가 없어요'); return null; }
+  const units=senseUnits(pool);            // 출제 대상 (뜻 단위)
+  const allUnits=senseUnits(allWords());   // 보기 재료 (전체 뜻)
+  const scopeName = scope==='__all__'?'전체':groupById(scope).name;
 
   if(dir==='blank'){
-    // 예문 속에서 단어(변형 포함)를 찾을 수 있는 단어만 출제 가능
+    // 예문 속에서 단어(변형 포함)를 찾을 수 있는 뜻만 출제 가능
     const eligible=[];
-    for(const w of pool){
-      const exs = w.examples.map(e=>({e, form:findFormInSentence(e.en, w.word)})).filter(x=>x.form && x.e.en);
-      if(exs.length) eligible.push({w, exs});
+    for(const u of units){
+      const exs=u.examples.map(e=>({e, form:findFormInSentence(e.en, u.word)})).filter(x=>x.form && x.e.en);
+      if(exs.length) eligible.push({u, exs});
     }
     if(!eligible.length){ toast('예문 속에서 단어를 찾을 수 있는 항목이 없어요. 예문에 해당 단어가 들어가야 출제돼요.'); return null; }
     count=Math.max(1, Math.min(count, eligible.length));
-    const picked=shuffle(eligible).slice(0,count);
-    const questions=picked.map(({w,exs})=>{
+    const questions=shuffle(eligible).slice(0,count).map(({u,exs})=>{
       const {e,form}=exs[Math.floor(Math.random()*exs.length)];
-      const re=formRegex(w.word,'i');
-      const blanked=e.en.replace(re,'______');
-      return { d:'blank', prompt:blanked, hintKo:e.ko, hintMeaning:w.meaning, answer:form, word:w.word };
+      const blanked=e.en.replace(formRegex(u.word,'i'),'______');
+      return { d:'blank', prompt:blanked, hintKo:e.ko, hintMeaning:u.meaning, answer:form, word:u.word };
     });
-    return {questions, scopeName: scope==='__all__'?'전체':groupById(scope).name};
+    return {questions, scopeName};
   }
 
-  if(all.length<4){ toast('보기 4개를 만들려면 단어가 최소 4개 필요해요'); return null; }
-  count=Math.max(1, Math.min(count, pool.length));
-  const picked=shuffle(pool).slice(0,count);
-  const questions=picked.map(w=>{
-    const d = dir==='mix' ? (Math.random()<.5?'e2k':'k2e') : dir;
-    const key = d==='e2k'?'meaning':'word';
-    const others = shuffle(all.filter(x=>x.id!==w.id && x[key]!==w[key]));
-    const distract=[]; const seen=new Set([w[key]]);
-    for(const o of others){
-      if(!seen.has(o[key])){ distract.push(o[key]); seen.add(o[key]); }
-      if(distract.length===3) break;
+  if(allUnits.length<4){ toast('보기 4개를 만들려면 뜻이 최소 4개 필요해요'); return null; }
+
+  // 예문 보고 뜻 고르기: 예문이 있는 뜻만 대상
+  const withEx = units.filter(u=>u.examples.some(e=>e.en));
+  if(dir==='ex2k' && !withEx.length){ toast('예문이 입력된 단어가 없어요'); return null; }
+
+  const basePool = dir==='ex2k' ? withEx : units;
+  count=Math.max(1, Math.min(count, basePool.length));
+  const questions=shuffle(basePool).slice(0,count).map(u=>{
+    let d = dir;
+    if(dir==='mix'){
+      const opts = u.examples.some(e=>e.en) ? ['ex2k','e2k','k2e'] : ['e2k','k2e'];
+      d = opts[Math.floor(Math.random()*opts.length)];
     }
-    while(distract.length<3) distract.push('—');
-    return { d, prompt: d==='e2k'?w.word:w.meaning, answer:w[key], choices:shuffle([w[key],...distract]) };
+    if(d==='ex2k'){
+      const ex = shuffle(u.examples.filter(e=>e.en))[0];
+      const answer=u.meaning;
+      return {
+        d:'ex2k', word:u.word, sentence:ex.en,
+        prompt: highlightWord(ex.en, u.word),   // 하이라이트 포함 HTML
+        promptPlain: ex.en,
+        answer, choices: shuffle([answer, ...pickDistractors(u, allUnits, 'meaning', 3, true)])
+      };
+    }
+    if(d==='e2k'){
+      const answer=u.meaning;
+      const senseTag = u.senseCount>1 ? `${CIRCLED[u.senseIdx]||''}` : '';
+      return { d:'e2k', prompt:u.word, senseTag, answer,
+               choices: shuffle([answer, ...pickDistractors(u, allUnits, 'meaning')]) };
+    }
+    const answer=u.word;
+    return { d:'k2e', prompt:u.meaning, answer,
+             choices: shuffle([answer, ...pickDistractors(u, allUnits, 'word')]) };
   });
-  return {questions, scopeName: scope==='__all__'?'전체':groupById(scope).name};
+  return {questions, scopeName};
 }
 window.startQuiz = function(){
   const scope=$('quizScope').value;
@@ -1134,8 +1300,12 @@ function renderQuiz(){
   box.innerHTML=`
     <div class="study-progress">${quiz.idx+1} / ${quiz.questions.length} · 맞힌 개수 ${quiz.correct}</div>
     <div class="card">
-      <div class="muted" style="text-align:center">${q.d==='e2k'?'알맞은 뜻을 고르세요':'알맞은 영어 단어를 고르세요'}</div>
-      <div class="quiz-q">${esc(q.prompt)}</div>
+      <div class="muted" style="text-align:center">${
+        q.d==='ex2k' ? '예문에서 <b>강조된 단어</b>가 어떤 뜻으로 쓰였는지 고르세요'
+        : q.d==='e2k' ? '알맞은 뜻을 고르세요' : '알맞은 영어 단어를 고르세요'}</div>
+      <div class="quiz-q" ${q.d==='ex2k'?'style="font-size:1.25rem;line-height:1.7"':''}>${
+        q.d==='ex2k' ? q.prompt : esc(q.prompt) + (q.senseTag?` <span class="chip teal">${q.senseTag} 뜻</span>`:'')
+      }</div>
       <div class="quiz-opts">
         ${q.choices.map((c,i)=>`<button class="quiz-opt" id="opt${i}" onclick="answerQuiz(${i})">${esc(c)}</button>`).join('')}
       </div>
@@ -1178,7 +1348,7 @@ window.exitQuiz = function(){
   $('quizSetup').style.display='block';
   updateQuizPoolInfo();
 };
-function dirLabel(d){ return d==='e2k'?'영→한':d==='k2e'?'한→영':d==='blank'?'빈칸 채우기':'혼합'; }
+function dirLabel(d){ return d==='e2k'?'영→한':d==='k2e'?'한→영':d==='blank'?'빈칸 채우기':d==='ex2k'?'예문→뜻':'혼합'; }
 
 /* ================= 인쇄용 퀴즈 (A4 PDF) ================= */
 const CIRC=['①','②','③','④'];
@@ -1200,8 +1370,12 @@ window.printQuiz = function(){
       </div>`;
       aHtml+=`<li>${esc(q.answer)}</li>`;
     }else{
+      const label = q.d==='ex2k' ? '밑줄 친 단어의 뜻' : q.d==='e2k' ? '알맞은 뜻' : '알맞은 단어';
+      const promptHtml = q.d==='ex2k'
+        ? String(q.prompt).replace(/class="hl"/g,'style="text-decoration:underline;font-weight:800"')
+        : esc(q.prompt);
       qHtml+=`<div class="pq">
-        <div class="qp">${i+1}. ${esc(q.prompt)} <span style="font-weight:400;font-size:9.5pt;color:#5B818E">(${q.d==='e2k'?'알맞은 뜻':'알맞은 단어'} 고르기)</span></div>
+        <div class="qp">${i+1}. ${promptHtml} <span style="font-weight:400;font-size:9.5pt;color:#5B818E">(${label} 고르기)</span></div>
         <div class="p-choices">${q.choices.map((c,j)=>`<div>${CIRC[j]} ${esc(c)}</div>`).join('')}</div>
       </div>`;
       const idx=q.choices.indexOf(q.answer);
@@ -1289,7 +1463,7 @@ async function onLogin(u){
     if(snap.exists()){
       const remote=snap.data();
       if((remote.updatedAt||0) > (state.updatedAt||0)){
-        state=Object.assign(blank(), remote);
+        state=migrate(Object.assign(blank(), remote));
         persistLocal(); renderAll();
         toast('클라우드 데이터를 불러왔어요 ☁️');
       }else{
@@ -1303,7 +1477,7 @@ async function onLogin(u){
       if(!s.exists()) return;
       const remote=s.data();
       if((remote.updatedAt||0) > (state.updatedAt||0)){
-        state=Object.assign(blank(), remote);
+        state=migrate(Object.assign(blank(), remote));
         persistLocal(); renderAll();
       }
     });
