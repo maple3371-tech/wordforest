@@ -411,11 +411,16 @@ pre{
       <div class="week-strip" id="weekStrip"></div>
     </div>
 
+    <div class="card">
+      <h2>암기 진행률</h2>
+      <div id="memProgress"></div>
+    </div>
+
     <div class="stat-grid">
       <div class="stat"><div class="n" id="statWords">0</div><div class="t">전체 단어</div></div>
-      <div class="stat"><div class="n" id="statGroups">0</div><div class="t">DAY / CHAPTER</div></div>
-      <div class="stat"><div class="n" id="statConfusing">0</div><div class="t">헷갈리는 단어</div></div>
-      <div class="stat"><div class="n" id="statTests">0</div><div class="t">치른 테스트</div></div>
+      <div class="stat"><div class="n" id="statMemorized">0</div><div class="t">외운 단어</div></div>
+      <div class="stat"><div class="n" id="statConfusing">0</div><div class="t">헷갈리는 중</div></div>
+      <div class="stat"><div class="n" id="statWrong">0</div><div class="t">오답 노트</div></div>
     </div>
 
     <div class="card" style="margin-top:16px">
@@ -460,13 +465,22 @@ pre{
           <select id="studyScope"></select>
         </div>
         <div class="form-field">
+          <label>학습 대상</label>
+          <select id="studyFilter" onchange="renderResumeInfo()">
+            <option value="all">전체 단어</option>
+            <option value="unmemorized">아직 못 외운 단어만</option>
+            <option value="confusing">지금 헷갈리는 단어만</option>
+            <option value="ever">헷갈렸던 단어 전체(누적)</option>
+          </select>
+        </div>
+        <div class="form-field">
           <label>순서</label>
           <select id="studyOrder">
             <option value="shuffle">무작위로 섞기</option>
             <option value="order">입력한 순서대로</option>
           </select>
         </div>
-        <button class="btn green" style="width:100%" onclick="startStudy()">암기 시작</button>
+        <button class="btn green" style="width:100%" onclick="startStudy(null, document.getElementById('studyFilter').value)">암기 시작</button>
         <div id="studyResumeInfo" class="muted" style="margin-top:8px;text-align:center"></div>
       </div>
     </div>
@@ -476,11 +490,17 @@ pre{
   <!-- ============ 헷갈림 ============ -->
   <section class="tabpane" id="pane-confusing">
     <div class="card">
-      <h2>헷갈리는 단어 모아보기</h2>
+      <h2>헷갈리는 단어</h2>
       <div class="form-field">
         <label>범위</label>
         <select id="confScope" onchange="renderConfusing()"></select>
       </div>
+      <label>보기</label>
+      <div class="group-list" id="confViewTabs" style="margin-bottom:0">
+        <button class="group-tab active" data-view="confusing" onclick="setConfView('confusing')">🌀 지금 헷갈리는</button>
+        <button class="group-tab" data-view="ever" onclick="setConfView('ever')">📚 헷갈렸던 전체(누적)</button>
+      </div>
+      <div class="muted" style="margin-top:8px">한 번 헷갈렸던 단어는 외운 뒤에도 <b>누적</b> 목록에 남아서 다음 날 다시 복습할 수 있어요.</div>
     </div>
     <div id="confBody"></div>
   </section>
@@ -488,6 +508,7 @@ pre{
   <!-- ============ 테스트 ============ -->
   <section class="tabpane" id="pane-quiz">
     <div id="quizSetup">
+      <div class="card" id="wrongNoteCard"></div>
       <div class="card">
         <h2>테스트 설정</h2>
         <div class="form-field">
@@ -617,11 +638,19 @@ let user = null, db = null, fb = null, unsubscribe = null;
 let saveTimer = null;
 
 function blank(){
-  return { groups: [], daily: {}, tests: [], progress: {}, updatedAt: 0 };
+  return { groups: [], daily: {}, tests: [], progress: {}, wrongs: {}, updatedAt: 0 };
 }
 /* 구버전(단일 뜻) 데이터를 다의어 구조(senses)로 변환 */
 function migrate(d){
   if(!d.progress || typeof d.progress!=='object') d.progress={};
+  if(!d.wrongs || typeof d.wrongs!=='object') d.wrongs={};
+  (d.groups||[]).forEach(g=>{
+    (g.words||[]).forEach(w=>{
+      if(typeof w.memorized!=='boolean') w.memorized=false;
+      if(typeof w.confusedCount!=='number') w.confusedCount = w.confusing?1:0;
+      if(typeof w.everConfused!=='boolean') w.everConfused = !!w.confusing;
+    });
+  });
   (d.groups||[]).forEach(g=>{
     (g.words||[]).forEach(w=>{
       if(!Array.isArray(w.senses)){
@@ -657,6 +686,16 @@ function save(){
         setSyncStatus('동기화됨');
       }catch(e){ console.error(e); setSyncStatus('동기화 실패'); }
     }, 700);
+  }
+}
+
+/* 화면 전체를 다시 그리지 않고 저장만 하기 (학습/테스트 중 사용) */
+function syncState(){
+  state.updatedAt=Date.now();
+  persistLocal();
+  if(user&&db){
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(()=>fb.setDoc(fb.doc(db,'users',user.uid),state).catch(console.error),700);
   }
 }
 
@@ -760,6 +799,8 @@ function calcStreak(){
   return streak;
 }
 function markMemorized(wordId){
+  const w=findWord(wordId);
+  if(w){ w.memorized=true; w.memorizedAt=Date.now(); }
   const t = today();
   if(!state.daily[t]) state.daily[t] = [];
   if(!state.daily[t].includes(wordId)){
@@ -771,15 +812,17 @@ function markMemorized(wordId){
 
 /* ================= 렌더: 공통 ================= */
 function renderAll(){
-  renderHome(); renderGroups(); renderBook(); renderScopeSelects(); renderConfusing(); renderHistory(); renderResumeInfo();
+  renderHome(); renderGroups(); renderBook(); renderScopeSelects(); renderConfusing(); renderHistory(); renderResumeInfo(); renderWrongNote();
 }
 function renderResumeInfo(){
   const el=$('studyResumeInfo'); if(!el) return;
   const scope=$('studyScope').value||'__all__';
-  const saved=loadProgress(progressKey(scope,false));
-  el.innerHTML = saved
-    ? `🔖 저장된 진도: ${saved.idx} / ${saved.words.length}개 완료 — 시작하면 이어서 할지 물어봐요`
-    : '';
+  const filter=$('studyFilter')?.value||'all';
+  const n=wordsInScope(scope,filter).length;
+  const saved=loadProgress(progressKey(scope,filter));
+  el.innerHTML = (saved
+    ? `🔖 저장된 진도: ${saved.idx} / ${saved.words.length}개 완료 — 시작하면 이어서 할지 물어봐요<br>`
+    : '') + `<span class="muted">대상 단어 ${n}개</span>`;
 }
 function renderHome(){
   const s = calcStreak();
@@ -801,10 +844,32 @@ function renderHome(){
   $('weekStrip').innerHTML = html;
 
   const words = allWords();
+  const mem = words.filter(w=>w.memorized).length;
   $('statWords').textContent = words.length;
-  $('statGroups').textContent = state.groups.length;
+  $('statMemorized').textContent = mem;
   $('statConfusing').textContent = words.filter(w=>w.confusing).length;
-  $('statTests').textContent = state.tests.length;
+  $('statWrong').textContent = Object.keys(state.wrongs||{}).length;
+
+  // 전체 + 그룹별 암기 진행률
+  const pctAll = words.length ? Math.round(mem/words.length*100) : 0;
+  const rows = state.groups.filter(g=>g.words.length).map(g=>{
+    const m=g.words.filter(w=>w.memorized).length;
+    const p=Math.round(m/g.words.length*100);
+    return `<div style="margin-top:12px">
+      <div class="row" style="justify-content:space-between;font-size:.9rem">
+        <span style="font-weight:700">${esc(g.name)}</span>
+        <span class="muted">${m} / ${g.words.length} (${p}%)</span>
+      </div>
+      <div class="progress-wrap" style="background:#E3EBD3;height:9px"><div class="progress-bar" style="width:${p}%"></div></div>
+    </div>`;
+  }).join('');
+  $('memProgress').innerHTML = words.length ? `
+    <div class="row" style="justify-content:space-between;align-items:baseline">
+      <span style="font-size:1.6rem;font-weight:800;color:var(--navy)">${mem} <span style="font-size:1rem;color:var(--sub)">/ ${words.length}개</span></span>
+      <span class="chip">${pctAll}% 암기 완료</span>
+    </div>
+    <div class="progress-wrap" style="background:#E3EBD3;height:14px;margin-top:6px"><div class="progress-bar" style="width:${pctAll}%"></div></div>
+    ${rows}` : `<p class="muted">단어를 추가하면 진행률이 표시돼요.</p>`;
   $('studyGoalNote').textContent = n>=DAILY_GOAL
     ? `오늘 목표 달성! 지금까지 ${n}개 암기했어요 🌿`
     : `오늘 ${n}개 암기 — ${DAILY_GOAL-n}개만 더 하면 오늘 학습 완료!`;
@@ -863,8 +928,10 @@ function renderBook(){
         <div class="row" style="justify-content:space-between">
           <div>
             <span class="w">${esc(w.word)}</span>
+            ${w.memorized?'<span class="chip">✅ 외움</span>':''}
             ${(w.senses||[]).length>1?`<span class="chip teal">뜻 ${w.senses.length}개</span>`:''}
             ${w.confusing?'<span class="chip badge-confusing">헷갈림</span>':''}
+            ${!w.confusing&&w.everConfused?`<span class="chip teal">헷갈렸던 단어${(w.confusedCount||0)>1?` ${w.confusedCount}회`:''}</span>`:''}
           </div>
         </div>
         ${sensesHTML(w)}
@@ -1093,10 +1160,13 @@ function renderScopeSelects(){
   });
   updateQuizPoolInfo();
 }
-function wordsInScope(scopeVal, confusingOnly=false){
+function wordsInScope(scopeVal, filter='all'){
+  if(filter===true) filter='confusing';
   let ws = scopeVal==='__all__' ? allWords()
     : (groupById(scopeVal)?.words||[]).map(w=>({...w, groupId:scopeVal, groupName:groupById(scopeVal).name}));
-  if(confusingOnly) ws = ws.filter(w=>w.confusing);
+  if(filter==='confusing') ws = ws.filter(w=>w.confusing);
+  else if(filter==='ever')  ws = ws.filter(w=>w.everConfused);   // 누적: 외웠어도 계속 남음
+  else if(filter==='unmemorized') ws = ws.filter(w=>!w.memorized);
   return ws;
 }
 function findWord(id){
@@ -1106,7 +1176,8 @@ function findWord(id){
 
 /* ================= 암기 모드 ================= */
 let studyQueue=[], studyIdx=0, studyRevealed=false, studyKey=null, studyLabel='';
-function progressKey(scope, confusingOnly){ return (confusingOnly?'conf:':'grp:')+scope; }
+const FILTER_LABEL={all:'', confusing:'헷갈리는 단어', ever:'헷갈렸던 단어 복습', unmemorized:'아직 못 외운 단어'};
+function progressKey(scope, filter='all'){ return filter+':'+scope; }
 function saveProgress(){
   if(!studyKey) return;
   if(!state.progress) state.progress={};
@@ -1119,7 +1190,6 @@ function saveProgress(){
   state.updatedAt=Date.now(); persistLocal();
   if(user&&db){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>fb.setDoc(fb.doc(db,'users',user.uid),state).catch(console.error),700); }
 }
-/* 저장된 진도가 아직 유효한지 확인(삭제된 단어 정리) */
 function loadProgress(key){
   const p=(state.progress||{})[key];
   if(!p) return null;
@@ -1135,9 +1205,9 @@ function loadProgress(key){
   if(idx>=ws.length) return null;           // 이미 다 끝난 진도
   return {words:ws, idx};
 }
-window.startStudy = function(mode, confusingOnly=false){
+window.startStudy = function(mode, filter='all'){
   const scope=$('studyScope').value;
-  const key=progressKey(scope, confusingOnly);
+  const key=progressKey(scope, filter);
   const saved=loadProgress(key);
   if(saved && mode!=='restart'){
     // 이어서 할지 물어보기
@@ -1149,34 +1219,36 @@ window.startStudy = function(mode, confusingOnly=false){
       <p class="muted">${esc(saved.words[saved.idx].word)} 부터 · ${saved.idx} / ${saved.words.length}개 완료</p>
       <div class="study-btns">
         <button class="btn green" onclick="resumeStudy('${key}')">▶ 이어서 하기</button>
-        <button class="btn ghost" onclick="startStudy('restart',${confusingOnly})">처음부터 다시</button>
+        <button class="btn ghost" onclick="startStudy('restart','${filter}')">처음부터 다시</button>
       </div>
       <div><button class="btn ghost sm" onclick="exitStudy()">범위 다시 선택</button></div>
     </div>`;
     return;
   }
-  let ws = wordsInScope(scope, confusingOnly);
-  if(!ws.length) return toast(confusingOnly?'이 범위에 헷갈리는 단어가 없어요':'이 범위에 단어가 없어요');
-  if(confusingOnly || $('studyOrder').value==='shuffle') ws=shuffle(ws);
-  beginStudy(ws, 0, key, confusingOnly?'헷갈리는 단어':(scope==='__all__'?'전체':groupById(scope).name));
+  let ws = wordsInScope(scope, filter);
+  if(!ws.length) return toast(filter==='all'?'이 범위에 단어가 없어요':`${FILTER_LABEL[filter]}가 없어요`);
+  if(filter!=='all' || $('studyOrder').value==='shuffle') ws=shuffle(ws);
+  const scopeName = scope==='__all__'?'전체':groupById(scope).name;
+  beginStudy(ws, 0, key, filter==='all'?scopeName:`${FILTER_LABEL[filter]} · ${scopeName}`);
 };
 /* 완료/재시작 시 현재 세션 종류 유지 */
 window.restartStudy = function(){
-  startStudy('restart', String(studyKey||'').startsWith('conf:'));
+  startStudy('restart', String(studyKey||'all:').split(':')[0]||'all');
 };
 window.resumeStudy = function(key){
   const saved=loadProgress(key);
   if(!saved) return startStudy('restart');
   beginStudy(saved.words, saved.idx, key, (state.progress[key]||{}).label||'');
 };
-/* 헷갈리는 단어 암기 모드 (헷갈림 탭에서 호출) */
-window.startConfusingStudy = function(){
+/* 헷갈림 관련 암기 모드 (헷갈림 탭에서 호출) */
+window.startConfusingStudy = function(filter='confusing'){
   const scope=$('confScope').value||'__all__';
-  if(!wordsInScope(scope,true).length) return toast('헷갈리는 단어가 없어요');
+  if(!wordsInScope(scope,filter).length) return toast(`${FILTER_LABEL[filter]}가 없어요`);
   goTab('study');
   $('studyScope').value=scope;
+  if($('studyFilter')) $('studyFilter').value=filter;
   renderResumeInfo();
-  startStudy(null, true);
+  startStudy(null, filter);
 };
 function beginStudy(ws, idx, key, label){
   studyQueue=ws; studyIdx=idx; studyRevealed=false; studyKey=key; studyLabel=label;
@@ -1230,7 +1302,11 @@ window.studyMark = function(memorized){
   const w=findWord(studyQueue[studyIdx].id);
   if(w){
     if(memorized){ w.confusing=false; markMemorized(w.id); }
-    else w.confusing=true;
+    else {
+      w.confusing=true; w.everConfused=true;
+      w.confusedCount=(w.confusedCount||0)+1;
+      w.lastConfusedAt=Date.now();
+    }
   }
   studyIdx++; studyRevealed=false;
   saveProgress();
@@ -1246,24 +1322,41 @@ window.exitStudy = function(){
   if(remain) toast('진도를 저장했어요 · 다음에 이어서 할 수 있어요 🔖');
 };
 
-/* ================= 헷갈림 ================= */
+/* ================= 헷갈림 (누적 기록) ================= */
+let confView='confusing';
+window.setConfView = function(v){
+  confView=v;
+  document.querySelectorAll('#confViewTabs .group-tab').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  renderConfusing();
+};
 window.renderConfusing = function(){
   const scope=$('confScope').value||'__all__';
-  const ws=wordsInScope(scope,true);
+  const ws=wordsInScope(scope, confView);
   const body=$('confBody');
   if(!ws.length){
-    body.innerHTML=`<div class="empty">헷갈리는 단어가 없어요! 깔끔하네요 ✨<br><span class="muted">암기 모드에서 🌀 헷갈려요를 누르면 여기에 모여요.</span></div>`;
+    body.innerHTML = confView==='confusing'
+      ? `<div class="empty">지금 헷갈리는 단어가 없어요! 깔끔하네요 ✨<br><span class="muted">암기 모드에서 🌀 헷갈려요를 누르면 여기에 모여요.</span></div>`
+      : `<div class="empty">아직 헷갈렸던 기록이 없어요 📚<br><span class="muted">한 번이라도 헷갈렸던 단어는 외운 뒤에도 여기 남아요.</span></div>`;
     return;
   }
+  const activeN = ws.filter(w=>w.confusing).length;
   body.innerHTML=`<div class="card">
     <div class="row" style="justify-content:space-between;margin-bottom:12px">
-      <p class="muted" style="margin:0">단어를 누르면 뜻이 보여요 · 총 ${ws.length}개</p>
-      <button class="btn green sm" onclick="startConfusingStudy()">🌀 헷갈리는 단어 암기하기</button>
+      <p class="muted" style="margin:0">
+        총 ${ws.length}개${confView==='ever'?` · 아직 헷갈리는 중 ${activeN}개 · 극복 ${ws.length-activeN}개`:''}
+      </p>
+      <button class="btn green sm" onclick="startConfusingStudy('${confView}')">
+        ${confView==='confusing'?'🌀 헷갈리는 단어 암기':'📚 누적 전체 복습하기'}
+      </button>
     </div>
     ${ws.map(w=>`
       <div class="word-item">
         <div class="row" style="justify-content:space-between">
-          <span class="w">${esc(w.word)}</span>
+          <div>
+            <span class="w">${esc(w.word)}</span>
+            ${(w.confusedCount||0)>1?`<span class="chip badge-confusing">${w.confusedCount}번 헷갈림</span>`:''}
+            ${!w.confusing?'<span class="chip">✅ 극복함</span>':''}
+          </div>
           <span class="chip teal">${esc(w.groupName)}</span>
         </div>
         <details style="margin-top:6px">
@@ -1272,7 +1365,9 @@ window.renderConfusing = function(){
           ${w.memo?`<div class="memo"><b>MEMO</b> ${esc(w.memo)}</div>`:''}
         </details>
         <div class="word-actions">
-          <button class="btn green sm" onclick="resolveConfusing('${w.id}')">✅ 이제 외웠어요</button>
+          ${w.confusing
+            ? `<button class="btn green sm" onclick="resolveConfusing('${w.id}')">✅ 이제 외웠어요</button>`
+            : `<button class="btn ghost sm" onclick="reConfuse('${w.id}')">🌀 다시 헷갈려요</button>`}
         </div>
       </div>`).join('')}
   </div>`;
@@ -1280,11 +1375,103 @@ window.renderConfusing = function(){
 window.resolveConfusing = function(id){
   const w=findWord(id);
   if(!w) return;
-  w.confusing=false;
-  markMemorized(id);          // 오늘 외운 단어로 집계 (연속 학습에 반영)
+  w.confusing=false;                 // everConfused는 그대로 남겨 누적 복습 가능
+  markMemorized(id);
   save();
   const n=(state.daily[today()]||[]).length;
-  toast(`헷갈림 해제 · 오늘 ${n}/${DAILY_GOAL}개 암기 ${n>=DAILY_GOAL?'✅':''}`);
+  toast(`헷갈림 해제 · 오늘 ${n}/${DAILY_GOAL}개 암기 ${n>=DAILY_GOAL?'✅':''} · 누적 목록엔 남아있어요`);
+};
+window.reConfuse = function(id){
+  const w=findWord(id);
+  if(!w) return;
+  w.confusing=true; w.everConfused=true;
+  w.confusedCount=(w.confusedCount||0)+1;
+  w.lastConfusedAt=Date.now();
+  save();
+  toast('헷갈리는 단어에 다시 추가했어요');
+};
+
+/* ================= 오답 노트 (누적) ================= */
+function wrongKey(q){ return `${q.wordId}:${q.senseIdx}`; }
+function recordWrong(q){
+  if(!q.wordId) return;
+  if(!state.wrongs) state.wrongs={};
+  const k=wrongKey(q), cur=state.wrongs[k];
+  state.wrongs[k]=cur
+    ? {...cur, wrongCount:cur.wrongCount+1, lastTs:Date.now(), lastDir:q.d}
+    : {wordId:q.wordId, senseIdx:q.senseIdx, wrongCount:1, rightCount:0, lastTs:Date.now(), lastDir:q.d};
+}
+function recordRight(q){
+  if(!q.wordId || !state.wrongs) return;
+  const cur=state.wrongs[wrongKey(q)];
+  if(cur){ cur.rightCount=(cur.rightCount||0)+1; cur.lastTs=Date.now(); }  // 맞혀도 목록엔 남아 반복 학습 가능
+}
+/* 오답 노트에 있는 뜻 단위만 뽑기 (삭제된 단어는 자동 정리) */
+function wrongUnits(){
+  const out=[];
+  Object.entries(state.wrongs||{}).forEach(([k,v])=>{
+    const w=findWord(v.wordId);
+    if(!w || !(w.senses||[])[v.senseIdx]){ delete state.wrongs[k]; return; }
+    const g=state.groups.find(gg=>gg.words.some(x=>x.id===v.wordId));
+    const s=w.senses[v.senseIdx];
+    out.push({
+      wordId:w.id, word:w.word, memo:w.memo, meaning:s.meaning, examples:s.examples||[],
+      senseIdx:v.senseIdx, senseCount:w.senses.length,
+      groupId:g?.id, groupName:g?.name, stat:v
+    });
+  });
+  return out;
+}
+function renderWrongNote(){
+  const card=$('wrongNoteCard'); if(!card) return;
+  const units=wrongUnits();
+  if(!units.length){
+    card.innerHTML=`<h2>📕 오답 노트</h2>
+      <p class="muted">아직 틀린 문제가 없어요. 테스트에서 틀리면 여기에 자동으로 쌓여요.</p>`;
+    return;
+  }
+  const mastered=units.filter(u=>u.stat.rightCount>=2).length;
+  const top=[...units].sort((a,b)=>b.stat.wrongCount-a.stat.wrongCount).slice(0,8);
+  card.innerHTML=`
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <h2 style="margin:0">📕 오답 노트 <span class="chip badge-confusing">${units.length}문제</span></h2>
+      <button class="btn teal sm" onclick="startWrongQuiz()">🔁 오답만 다시 풀기</button>
+    </div>
+    <p class="muted" style="margin-bottom:10px">틀린 문제는 계속 남아서 여러 번 다시 풀 수 있어요 · 2번 이상 맞힌 문제 ${mastered}개</p>
+    <div class="row" style="gap:6px;margin-bottom:10px">
+      ${top.map(u=>`<span class="chip ${u.stat.rightCount>=2?'':'badge-confusing'}" title="${esc(u.meaning)}">
+        ${esc(u.word)}${u.senseCount>1?` ${CIRCLED[u.senseIdx]||''}`:''} · ✗${u.stat.wrongCount}${u.stat.rightCount?` ✓${u.stat.rightCount}`:''}
+      </span>`).join('')}
+      ${units.length>8?`<span class="chip teal">+${units.length-8}</span>`:''}
+    </div>
+    <div class="row">
+      <button class="btn ghost sm" onclick="clearMasteredWrongs()">✅ 2번 이상 맞힌 문제 정리</button>
+      <button class="btn danger sm" onclick="clearAllWrongs()">오답 노트 전체 비우기</button>
+    </div>`;
+}
+window.clearMasteredWrongs = function(){
+  const before=Object.keys(state.wrongs||{}).length;
+  Object.entries(state.wrongs||{}).forEach(([k,v])=>{ if((v.rightCount||0)>=2) delete state.wrongs[k]; });
+  const n=before-Object.keys(state.wrongs).length;
+  save();
+  toast(n?`${n}문제를 오답 노트에서 정리했어요`:'2번 이상 맞힌 문제가 아직 없어요');
+};
+window.clearAllWrongs = function(){
+  if(!confirm('오답 노트를 전부 비울까요?')) return;
+  state.wrongs={}; save(); toast('오답 노트를 비웠어요');
+};
+window.startWrongQuiz = function(){
+  const units=wrongUnits();
+  if(!units.length) return toast('오답 노트가 비어 있어요');
+  const dir=$('quizDir').value;
+  let count=parseInt($('quizCount').value)||10;
+  count=Math.max(1, Math.min(count, units.length));
+  const built=buildFromUnits(shuffle(units).slice(0,count), dir, '오답 노트');
+  if(!built) return;
+  quiz={scopeName:'오답 노트', dir, questions:built.questions, idx:0, correct:0, answered:false};
+  $('quizSetup').style.display='none';
+  $('quizRun').style.display='block';
+  renderQuiz();
 };
 
 /* ================= 테스트 ================= */
@@ -1315,65 +1502,67 @@ function pickDistractors(target, allUnits, key, n=3, sameWordFirst=false){
   while(out.length<n) out.push('—');
   return out;
 }
-function buildQuestions(scope, dir, count){
-  const pool=wordsInScope(scope);
-  if(!pool.length){ toast('이 범위에 단어가 없어요'); return null; }
-  const units=senseUnits(pool);            // 출제 대상 (뜻 단위)
+/* 주어진 뜻 단위 목록으로 문제 만들기 (범위 테스트 / 오답 노트 공용) */
+function buildFromUnits(units, dir, scopeName){
   const allUnits=senseUnits(allWords());   // 보기 재료 (전체 뜻)
-  const scopeName = scope==='__all__'?'전체':groupById(scope).name;
+  if(!units.length){ toast('출제할 문제가 없어요'); return null; }
 
   if(dir==='blank'){
-    // 예문 속에서 단어(변형 포함)를 찾을 수 있는 뜻만 출제 가능
     const eligible=[];
     for(const u of units){
       const exs=u.examples.map(e=>({e, form:findFormInSentence(e.en, u.word)})).filter(x=>x.form && x.e.en);
       if(exs.length) eligible.push({u, exs});
     }
     if(!eligible.length){ toast('예문 속에서 단어를 찾을 수 있는 항목이 없어요. 예문에 해당 단어가 들어가야 출제돼요.'); return null; }
-    count=Math.max(1, Math.min(count, eligible.length));
-    const questions=shuffle(eligible).slice(0,count).map(({u,exs})=>{
+    const questions=eligible.map(({u,exs})=>{
       const {e,form}=exs[Math.floor(Math.random()*exs.length)];
       const blanked=e.en.replace(formRegex(u.word,'i'),'______');
-      return { d:'blank', prompt:blanked, hintKo:e.ko, hintMeaning:u.meaning, answer:form, word:u.word };
+      return { d:'blank', prompt:blanked, hintKo:e.ko, hintMeaning:u.meaning, answer:form, word:u.word,
+               wordId:u.wordId, senseIdx:u.senseIdx };
     });
     return {questions, scopeName};
   }
 
   if(allUnits.length<4){ toast('보기 4개를 만들려면 뜻이 최소 4개 필요해요'); return null; }
-
-  // 예문 보고 뜻 고르기: 예문이 있는 뜻만 대상
   const withEx = units.filter(u=>u.examples.some(e=>e.en));
   if(dir==='ex2k' && !withEx.length){ toast('예문이 입력된 단어가 없어요'); return null; }
-
   const basePool = dir==='ex2k' ? withEx : units;
-  count=Math.max(1, Math.min(count, basePool.length));
-  const questions=shuffle(basePool).slice(0,count).map(u=>{
+
+  const questions=basePool.map(u=>{
     let d = dir;
     if(dir==='mix'){
       const opts = u.examples.some(e=>e.en) ? ['ex2k','e2k','k2e'] : ['e2k','k2e'];
       d = opts[Math.floor(Math.random()*opts.length)];
     }
+    const tag={ wordId:u.wordId, senseIdx:u.senseIdx };
     if(d==='ex2k'){
       const ex = shuffle(u.examples.filter(e=>e.en))[0];
       const answer=u.meaning;
-      return {
-        d:'ex2k', word:u.word, sentence:ex.en,
-        prompt: highlightWord(ex.en, u.word),   // 하이라이트 포함 HTML
-        promptPlain: ex.en,
-        answer, choices: shuffle([answer, ...pickDistractors(u, allUnits, 'meaning', 3, true)])
-      };
+      return { ...tag, d:'ex2k', word:u.word, sentence:ex.en,
+        prompt: highlightWord(ex.en, u.word), promptPlain: ex.en,
+        answer, choices: shuffle([answer, ...pickDistractors(u, allUnits, 'meaning', 3, true)]) };
     }
     if(d==='e2k'){
       const answer=u.meaning;
       const senseTag = u.senseCount>1 ? `${CIRCLED[u.senseIdx]||''}` : '';
-      return { d:'e2k', prompt:u.word, senseTag, answer,
+      return { ...tag, d:'e2k', prompt:u.word, senseTag, answer,
                choices: shuffle([answer, ...pickDistractors(u, allUnits, 'meaning')]) };
     }
     const answer=u.word;
-    return { d:'k2e', prompt:u.meaning, answer,
+    return { ...tag, d:'k2e', prompt:u.meaning, answer,
              choices: shuffle([answer, ...pickDistractors(u, allUnits, 'word')]) };
   });
   return {questions, scopeName};
+}
+function buildQuestions(scope, dir, count){
+  const pool=wordsInScope(scope);
+  if(!pool.length){ toast('이 범위에 단어가 없어요'); return null; }
+  const units=senseUnits(pool);
+  const scopeName = scope==='__all__'?'전체':groupById(scope).name;
+  const built=buildFromUnits(shuffle(units), dir, scopeName);
+  if(!built) return null;
+  built.questions = built.questions.slice(0, Math.max(1, Math.min(count, built.questions.length)));
+  return built;
 }
 window.startQuiz = function(){
   const scope=$('quizScope').value;
@@ -1446,7 +1635,8 @@ window.answerQuiz = function(i){
   quiz.answered=true;
   const q=quiz.questions[quiz.idx];
   const isCorrect = q.choices[i]===q.answer;
-  if(isCorrect) quiz.correct++;
+  if(isCorrect){ quiz.correct++; recordRight(q); } else { recordWrong(q); }
+  syncState();
   q.choices.forEach((c,j)=>{
     const el=$('opt'+j); el.disabled=true;
     if(c===q.answer) el.classList.add('correct');
@@ -1461,7 +1651,8 @@ window.answerBlank = function(){
   if(!val) return toast('답을 입력해 주세요');
   quiz.answered=true;
   const ok = val.toLowerCase()===q.answer.toLowerCase();
-  if(ok) quiz.correct++;
+  if(ok){ quiz.correct++; recordRight(q); } else { recordWrong(q); }
+  syncState();
   const fb=$('blankFeedback');
   fb.innerHTML = ok
     ? `<span style="color:#5C7E33">⭕ 정답! <span class="hl">${esc(q.answer)}</span></span>`
@@ -1475,6 +1666,7 @@ window.exitQuiz = function(){
   $('quizRun').style.display='none';
   $('quizSetup').style.display='block';
   updateQuizPoolInfo();
+  renderWrongNote();
 };
 function dirLabel(d){ return d==='e2k'?'영→한':d==='k2e'?'한→영':d==='blank'?'빈칸 채우기':d==='ex2k'?'예문→뜻':'혼합'; }
 
