@@ -471,6 +471,10 @@ pre{
             <option value="unmemorized">아직 못 외운 단어만</option>
             <option value="confusing">지금 헷갈리는 단어만</option>
             <option value="ever">헷갈렸던 단어 전체(누적)</option>
+            <option value="days:1">오늘 헷갈린 단어</option>
+            <option value="days:2">어제까지 헷갈린 단어</option>
+            <option value="days:7">최근 7일간 헷갈린 단어</option>
+            <option value="days:30">최근 30일간 헷갈린 단어</option>
           </select>
         </div>
         <div class="form-field">
@@ -499,8 +503,13 @@ pre{
       <div class="group-list" id="confViewTabs" style="margin-bottom:0">
         <button class="group-tab active" data-view="confusing" onclick="setConfView('confusing')">🌀 지금 헷갈리는</button>
         <button class="group-tab" data-view="ever" onclick="setConfView('ever')">📚 헷갈렸던 전체(누적)</button>
+        <button class="group-tab" data-view="bydate" onclick="setConfView('bydate')">📅 날짜별</button>
       </div>
-      <div class="muted" style="margin-top:8px">한 번 헷갈렸던 단어는 외운 뒤에도 <b>누적</b> 목록에 남아서 다음 날 다시 복습할 수 있어요.</div>
+      <div id="confDateWrap" style="display:none;margin-top:12px">
+        <label>헷갈린 날짜</label>
+        <select id="confDate" onchange="renderConfusing()"></select>
+      </div>
+      <div class="muted" style="margin-top:8px">헷갈릴 때마다 <b>그날 날짜로 누적 기록</b>돼요 · 외운 뒤에도 남아서 언제든 다시 복습할 수 있어요.</div>
     </div>
     <div id="confBody"></div>
   </section>
@@ -638,17 +647,24 @@ let user = null, db = null, fb = null, unsubscribe = null;
 let saveTimer = null;
 
 function blank(){
-  return { groups: [], daily: {}, tests: [], progress: {}, wrongs: {}, updatedAt: 0 };
+  return { groups: [], daily: {}, tests: [], progress: {}, wrongs: {}, confusedLog: {}, updatedAt: 0 };
 }
 /* 구버전(단일 뜻) 데이터를 다의어 구조(senses)로 변환 */
 function migrate(d){
   if(!d.progress || typeof d.progress!=='object') d.progress={};
   if(!d.wrongs || typeof d.wrongs!=='object') d.wrongs={};
+  if(!d.confusedLog || typeof d.confusedLog!=='object') d.confusedLog={};
   (d.groups||[]).forEach(g=>{
     (g.words||[]).forEach(w=>{
       if(typeof w.memorized!=='boolean') w.memorized=false;
       if(typeof w.confusedCount!=='number') w.confusedCount = w.confusing?1:0;
       if(typeof w.everConfused!=='boolean') w.everConfused = !!w.confusing;
+      // 기존 데이터: 마지막으로 헷갈린 날짜가 있으면 날짜별 기록에 채워 넣기
+      if(w.everConfused && w.lastConfusedAt){
+        const ds=dstr(new Date(w.lastConfusedAt));
+        if(!d.confusedLog[ds]) d.confusedLog[ds]=[];
+        if(!d.confusedLog[ds].includes(w.id)) d.confusedLog[ds].push(w.id);
+      }
     });
   });
   (d.groups||[]).forEach(g=>{
@@ -798,8 +814,19 @@ function calcStreak(){
   }
   return streak;
 }
-function markMemorized(wordId){
+/* 헷갈림 표시 + 날짜별 누적 기록 */
+function markConfused(wordId){
   const w=findWord(wordId);
+  if(!w) return;
+  w.confusing=true; w.everConfused=true;
+  w.confusedCount=(w.confusedCount||0)+1;
+  w.lastConfusedAt=Date.now();
+  const t=today();
+  if(!state.confusedLog) state.confusedLog={};
+  if(!state.confusedLog[t]) state.confusedLog[t]=[];
+  if(!state.confusedLog[t].includes(wordId)) state.confusedLog[t].push(wordId);
+}
+function markMemorized(wordId){  const w=findWord(wordId);
   if(w){ w.memorized=true; w.memorizedAt=Date.now(); }
   const t = today();
   if(!state.daily[t]) state.daily[t] = [];
@@ -1167,7 +1194,38 @@ function wordsInScope(scopeVal, filter='all'){
   if(filter==='confusing') ws = ws.filter(w=>w.confusing);
   else if(filter==='ever')  ws = ws.filter(w=>w.everConfused);   // 누적: 외웠어도 계속 남음
   else if(filter==='unmemorized') ws = ws.filter(w=>!w.memorized);
+  else if(filter.startsWith('date:')){                            // 특정 날짜에 헷갈렸던 단어
+    const ids=new Set(state.confusedLog?.[filter.slice(5)]||[]);
+    ws = ws.filter(w=>ids.has(w.id));
+  }
+  else if(filter.startsWith('days:')){                            // 최근 N일 동안 헷갈렸던 단어
+    const n=parseInt(filter.slice(5))||7, ids=new Set();
+    for(let i=0;i<n;i++) (state.confusedLog?.[daysAgo(i)]||[]).forEach(id=>ids.add(id));
+    ws = ws.filter(w=>ids.has(w.id));
+  }
   return ws;
+}
+/* 헷갈림 기록이 있는 날짜 목록 (최신순) */
+function confusedDates(){
+  return Object.entries(state.confusedLog||{})
+    .filter(([,ids])=>ids && ids.length)
+    .sort((a,b)=>b[0].localeCompare(a[0]));
+}
+function dateLabel(ds){
+  if(ds===today()) return '오늘';
+  if(ds===daysAgo(1)) return '어제';
+  const [y,m,d]=ds.split('-');
+  const wd=['일','월','화','수','목','금','토'][new Date(+y,+m-1,+d).getDay()];
+  return `${+m}/${+d}(${wd})`;
+}
+function filterLabel(f){
+  if(f==='all') return '';
+  if(f==='confusing') return '헷갈리는 단어';
+  if(f==='ever') return '헷갈렸던 단어 전체';
+  if(f==='unmemorized') return '아직 못 외운 단어';
+  if(f.startsWith('date:')) return `${dateLabel(f.slice(5))}에 헷갈린 단어`;
+  if(f.startsWith('days:')) return `최근 ${f.slice(5)}일간 헷갈린 단어`;
+  return '';
 }
 function findWord(id){
   for(const g of state.groups){ const w=g.words.find(x=>x.id===id); if(w) return w; }
@@ -1175,9 +1233,8 @@ function findWord(id){
 }
 
 /* ================= 암기 모드 ================= */
-let studyQueue=[], studyIdx=0, studyRevealed=false, studyKey=null, studyLabel='';
-const FILTER_LABEL={all:'', confusing:'헷갈리는 단어', ever:'헷갈렸던 단어 복습', unmemorized:'아직 못 외운 단어'};
-function progressKey(scope, filter='all'){ return filter+':'+scope; }
+let studyQueue=[], studyIdx=0, studyRevealed=false, studyKey=null, studyLabel='', studyFilterCur='all';
+function progressKey(scope, filter='all'){ return filter+'|'+scope; }
 function saveProgress(){
   if(!studyKey) return;
   if(!state.progress) state.progress={};
@@ -1226,15 +1283,14 @@ window.startStudy = function(mode, filter='all'){
     return;
   }
   let ws = wordsInScope(scope, filter);
-  if(!ws.length) return toast(filter==='all'?'이 범위에 단어가 없어요':`${FILTER_LABEL[filter]}가 없어요`);
+  if(!ws.length) return toast(filter==='all'?'이 범위에 단어가 없어요':`${filterLabel(filter)}가 없어요`);
   if(filter!=='all' || $('studyOrder').value==='shuffle') ws=shuffle(ws);
   const scopeName = scope==='__all__'?'전체':groupById(scope).name;
-  beginStudy(ws, 0, key, filter==='all'?scopeName:`${FILTER_LABEL[filter]} · ${scopeName}`);
+  studyFilterCur=filter;
+  beginStudy(ws, 0, key, filter==='all'?scopeName:`${filterLabel(filter)} · ${scopeName}`);
 };
 /* 완료/재시작 시 현재 세션 종류 유지 */
-window.restartStudy = function(){
-  startStudy('restart', String(studyKey||'all:').split(':')[0]||'all');
-};
+window.restartStudy = function(){ startStudy('restart', studyFilterCur||'all'); };
 window.resumeStudy = function(key){
   const saved=loadProgress(key);
   if(!saved) return startStudy('restart');
@@ -1243,10 +1299,20 @@ window.resumeStudy = function(key){
 /* 헷갈림 관련 암기 모드 (헷갈림 탭에서 호출) */
 window.startConfusingStudy = function(filter='confusing'){
   const scope=$('confScope').value||'__all__';
-  if(!wordsInScope(scope,filter).length) return toast(`${FILTER_LABEL[filter]}가 없어요`);
+  if(!wordsInScope(scope,filter).length) return toast(`${filterLabel(filter)}가 없어요`);
   goTab('study');
   $('studyScope').value=scope;
-  if($('studyFilter')) $('studyFilter').value=filter;
+  const sel=$('studyFilter');
+  if(sel){
+    if(![...sel.options].some(o=>o.value===filter)){
+      // 날짜별처럼 기본 목록에 없는 조건은 임시 항목으로 추가
+      sel.querySelector('option[data-temp]')?.remove();
+      const opt=document.createElement('option');
+      opt.value=filter; opt.textContent=filterLabel(filter); opt.dataset.temp='1';
+      sel.appendChild(opt);
+    }
+    sel.value=filter;
+  }
   renderResumeInfo();
   startStudy(null, filter);
 };
@@ -1302,11 +1368,7 @@ window.studyMark = function(memorized){
   const w=findWord(studyQueue[studyIdx].id);
   if(w){
     if(memorized){ w.confusing=false; markMemorized(w.id); }
-    else {
-      w.confusing=true; w.everConfused=true;
-      w.confusedCount=(w.confusedCount||0)+1;
-      w.lastConfusedAt=Date.now();
-    }
+    else markConfused(w.id);
   }
   studyIdx++; studyRevealed=false;
   saveProgress();
@@ -1327,27 +1389,47 @@ let confView='confusing';
 window.setConfView = function(v){
   confView=v;
   document.querySelectorAll('#confViewTabs .group-tab').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+  $('confDateWrap').style.display = v==='bydate' ? 'block' : 'none';
+  if(v==='bydate') renderConfDateOptions();
   renderConfusing();
 };
+function renderConfDateOptions(){
+  const sel=$('confDate'); if(!sel) return;
+  const prev=sel.value;
+  const dates=confusedDates();
+  sel.innerHTML =
+    `<option value="days:7">최근 7일 전체</option><option value="days:30">최근 30일 전체</option>` +
+    dates.map(([ds,ids])=>`<option value="date:${ds}">${dateLabel(ds)} · ${ids.length}개</option>`).join('');
+  if([...sel.options].some(o=>o.value===prev)) sel.value=prev;
+}
+/* 현재 보기에 해당하는 필터 문자열 */
+function confFilter(){
+  if(confView==='bydate') return $('confDate').value || 'days:7';
+  return confView;
+}
 window.renderConfusing = function(){
   const scope=$('confScope').value||'__all__';
-  const ws=wordsInScope(scope, confView);
+  if(confView==='bydate') renderConfDateOptions();
+  const filter=confFilter();
+  const ws=wordsInScope(scope, filter);
   const body=$('confBody');
   if(!ws.length){
     body.innerHTML = confView==='confusing'
       ? `<div class="empty">지금 헷갈리는 단어가 없어요! 깔끔하네요 ✨<br><span class="muted">암기 모드에서 🌀 헷갈려요를 누르면 여기에 모여요.</span></div>`
+      : confView==='bydate'
+      ? `<div class="empty">이 기간에 헷갈린 기록이 없어요 📅</div>`
       : `<div class="empty">아직 헷갈렸던 기록이 없어요 📚<br><span class="muted">한 번이라도 헷갈렸던 단어는 외운 뒤에도 여기 남아요.</span></div>`;
     return;
   }
   const activeN = ws.filter(w=>w.confusing).length;
+  const btnLabel = confView==='confusing' ? '🌀 헷갈리는 단어 암기'
+                 : confView==='bydate' ? '📅 이 날짜만 복습하기' : '📚 누적 전체 복습하기';
   body.innerHTML=`<div class="card">
     <div class="row" style="justify-content:space-between;margin-bottom:12px">
       <p class="muted" style="margin:0">
-        총 ${ws.length}개${confView==='ever'?` · 아직 헷갈리는 중 ${activeN}개 · 극복 ${ws.length-activeN}개`:''}
+        ${confView!=='confusing'?`${filterLabel(filter)} · `:''}총 ${ws.length}개${confView!=='confusing'?` · 아직 헷갈리는 중 ${activeN}개 · 극복 ${ws.length-activeN}개`:''}
       </p>
-      <button class="btn green sm" onclick="startConfusingStudy('${confView}')">
-        ${confView==='confusing'?'🌀 헷갈리는 단어 암기':'📚 누적 전체 복습하기'}
-      </button>
+      <button class="btn green sm" onclick="startConfusingStudy('${filter}')">${btnLabel}</button>
     </div>
     ${ws.map(w=>`
       <div class="word-item">
@@ -1359,6 +1441,7 @@ window.renderConfusing = function(){
           </div>
           <span class="chip teal">${esc(w.groupName)}</span>
         </div>
+        ${w.lastConfusedAt?`<div class="muted" style="font-size:.8rem;margin-top:4px">마지막으로 헷갈린 날: ${dateLabel(dstr(new Date(w.lastConfusedAt)))}</div>`:''}
         <details style="margin-top:6px">
           <summary style="cursor:pointer;color:var(--slate);font-weight:600;font-size:.9rem">뜻 보기</summary>
           ${sensesHTML(w)}
@@ -1382,13 +1465,10 @@ window.resolveConfusing = function(id){
   toast(`헷갈림 해제 · 오늘 ${n}/${DAILY_GOAL}개 암기 ${n>=DAILY_GOAL?'✅':''} · 누적 목록엔 남아있어요`);
 };
 window.reConfuse = function(id){
-  const w=findWord(id);
-  if(!w) return;
-  w.confusing=true; w.everConfused=true;
-  w.confusedCount=(w.confusedCount||0)+1;
-  w.lastConfusedAt=Date.now();
+  if(!findWord(id)) return;
+  markConfused(id);
   save();
-  toast('헷갈리는 단어에 다시 추가했어요');
+  toast('헷갈리는 단어에 다시 추가했어요 (오늘 날짜로 기록)');
 };
 
 /* ================= 오답 노트 (누적) ================= */
