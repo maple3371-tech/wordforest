@@ -35,7 +35,7 @@ html{-webkit-text-size-adjust:100%}
 body{
   font-family:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',sans-serif;
   background:var(--bg);color:var(--ink);line-height:1.55;
-  min-height:100vh;
+  min-height:100vh;overflow-x:hidden;
 }
 button{font-family:inherit;cursor:pointer;border:none;background:none;font-size:1rem}
 input,select,textarea{font-family:inherit;font-size:1rem;color:var(--ink)}
@@ -46,30 +46,50 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-of
 :focus-visible{outline:2px solid var(--slate);outline-offset:2px}
 
 /* ---------- header ---------- */
+#topbar{position:sticky;top:0;z-index:50}
 header{
   background:var(--pine);color:#fff;
-  padding:14px 18px;display:flex;align-items:center;gap:12px;
-  position:sticky;top:0;z-index:50;
+  padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
 }
-.logo{font-weight:800;font-size:1.15rem;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+.logo{
+  font-weight:800;font-size:1.15rem;letter-spacing:-.02em;
+  display:flex;align-items:center;gap:8px;white-space:nowrap;flex:none;
+}
 .logo .leaf{font-size:1.2rem}
 .streak-pill{
-  margin-left:auto;display:flex;align-items:center;gap:6px;
+  display:flex;align-items:center;gap:5px;flex:none;white-space:nowrap;
   background:rgba(208,230,166,.18);border:1px solid rgba(208,230,166,.45);
-  color:var(--leaf-100);border-radius:999px;padding:5px 12px;font-weight:700;font-size:.9rem;
+  color:var(--leaf-100);border-radius:999px;padding:5px 11px;font-weight:700;font-size:.88rem;
 }
-#authArea{display:flex;align-items:center;gap:8px}
+#streakPill{margin-left:auto}
+#authArea{display:flex;align-items:center;gap:8px;flex:none}
 .btn-auth{
-  background:var(--leaf-200);color:var(--pine);font-weight:700;border-radius:999px;padding:7px 14px;font-size:.88rem;
+  background:var(--leaf-200);color:var(--pine);font-weight:700;border-radius:999px;
+  padding:6px 13px;font-size:.86rem;white-space:nowrap;flex:none;
 }
 .btn-auth:hover{background:var(--leaf-100)}
-.avatar{width:30px;height:30px;border-radius:50%;border:2px solid var(--leaf-200)}
-.sync-dot{font-size:.75rem;color:var(--leaf-100);opacity:.85}
+.avatar{width:28px;height:28px;border-radius:50%;border:2px solid var(--leaf-200);flex:none}
+.sync-dot{font-size:.75rem;color:var(--leaf-100);opacity:.85;white-space:nowrap}
+
+/* 좁은 화면: 아이콘만 남기고 글자는 숨김 */
+@media (max-width:700px){
+  .sync-dot{display:none}
+}
+@media (max-width:560px){
+  header{padding:9px 12px;gap:6px}
+  .logo{font-size:1rem}
+  .logo .leaf{font-size:1.05rem}
+  .streak-pill{padding:4px 9px;font-size:.82rem}
+  .btn-auth{padding:6px 10px;font-size:.82rem}
+  .btn-auth .lbl{display:none}   /* ⟳ 가로 → ⟳ 처럼 아이콘만 */
+  .logo .name{display:none}      /* 로고는 잎 아이콘만 남겨 한 줄에 들어가게 */
+  .logo .leaf{font-size:1.3rem}
+}
 
 /* ---------- tabs ---------- */
 nav{
   display:flex;gap:2px;background:var(--card);border-bottom:1.5px solid var(--line);
-  overflow-x:auto;position:sticky;top:58px;z-index:40;padding:0 8px;
+  overflow-x:auto;padding:0 8px;-webkit-overflow-scrolling:touch;
 }
 nav button{
   padding:12px 14px;font-weight:600;color:var(--sub);white-space:nowrap;font-size:.95rem;
@@ -376,14 +396,12 @@ pre{
 @media (max-width:520px){
   .streak-num{font-size:2.4rem}
   .study-word{font-size:1.7rem}
-  nav{top:56px}
 }
 
 /* ---------- 가로 모드 (낮은 화면 높이) ---------- */
 @media (orientation:landscape) and (max-height:520px){
   header{padding:8px 14px}
   .logo{font-size:1rem}
-  nav{top:46px}
   nav button{padding:8px 12px;font-size:.9rem}
   main{padding:12px 16px 50px}
   .card{padding:14px;margin-bottom:12px}
@@ -409,12 +427,13 @@ pre{
 </head>
 <body>
 
+<div id="topbar">
 <header>
-  <div class="logo"><span class="leaf">🌱</span>Word Forest</div>
+  <div class="logo"><span class="leaf">🌱</span><span class="name">Word Forest</span></div>
   <div class="streak-pill" id="streakPill" title="연속 학습">🔥 <span id="streakTop">0</span>일</div>
   <div class="streak-pill" id="leafPill" title="잎사귀" style="margin-left:6px">🍃 <span id="leafTop">0</span></div>
-  <button class="btn-auth" id="rotateBtn" style="margin-left:6px" title="가로 보기 고정 / 해제">⟳ 가로</button>
-  <button class="btn-auth" id="installBtn" style="display:none;margin-left:6px" title="앱으로 설치">⬇ 앱 설치</button>
+  <button class="btn-auth" id="rotateBtn" title="가로 보기 고정 / 해제">⟳<span class="lbl"> 가로</span></button>
+  <button class="btn-auth" id="installBtn" style="display:none;margin-left:6px" title="앱으로 설치">⬇<span class="lbl"> 앱 설치</span></button>
   <div id="authArea"></div>
 </header>
 
@@ -426,6 +445,7 @@ pre{
   <button data-tab="quiz">테스트</button>
   <button data-tab="history">기록</button>
 </nav>
+</div>
 
 <main>
   <!-- ============ 홈 ============ -->
@@ -2269,7 +2289,7 @@ function renderAuth(){
     area.innerHTML=`
       <span class="sync-dot">동기화됨</span>
       <img class="avatar" src="${esc(user.photoURL||'')}" alt="" referrerpolicy="no-referrer">
-      <button class="btn-auth" id="btnLogout">로그아웃</button>`;
+      <button class="btn-auth" id="btnLogout" title="로그아웃">↪<span class="lbl"> 로그아웃</span></button>`;
     $('btnLogout').onclick=doLogout;
   }else{
     area.innerHTML=`<button class="btn-auth" id="btnLogin">구글 로그인</button>`;
@@ -2347,7 +2367,9 @@ if(!(screen.orientation && screen.orientation.lock)){
   rotBtn.style.display='none';           // 지원하지 않는 환경(PC 등)에서는 숨김
 }
 function inFullscreen(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
-function syncRotBtn(){ rotBtn.textContent = inFullscreen() ? '⟲ 해제' : '⟳ 가로'; }
+function syncRotBtn(){
+  rotBtn.innerHTML = inFullscreen() ? '⟲<span class="lbl"> 해제</span>' : '⟳<span class="lbl"> 가로</span>';
+}
 document.addEventListener('fullscreenchange', syncRotBtn);
 rotBtn.addEventListener('click', async ()=>{
   try{
