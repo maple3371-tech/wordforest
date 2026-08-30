@@ -1,0 +1,21 @@
+{
+  "name": "Word Forest — 영어 단어 학습",
+  "short_name": "Word Forest",
+  "description": "DAY/CHAPTER별 단어 암기, 다의어 예문 테스트, 연속 학습 기록까지 한 번에.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F9EC",
+  "theme_color": "#293E3F",
+  "lang": "ko",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "암기 시작", "url": "./index.html#study" },
+    { "name": "테스트 보기", "url": "./index.html#quiz" }
+  ]
+}
