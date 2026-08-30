@@ -378,6 +378,33 @@ pre{
   .study-word{font-size:1.7rem}
   nav{top:56px}
 }
+
+/* ---------- 가로 모드 (낮은 화면 높이) ---------- */
+@media (orientation:landscape) and (max-height:520px){
+  header{padding:8px 14px}
+  .logo{font-size:1rem}
+  nav{top:46px}
+  nav button{padding:8px 12px;font-size:.9rem}
+  main{padding:12px 16px 50px}
+  .card{padding:14px;margin-bottom:12px}
+  /* 히어로: 연속일수 + 진행바를 한 줄로 */
+  .streak-hero{padding:16px 18px;gap:16px}
+  .streak-num{font-size:2.2rem}
+  /* 세로 공간을 적게 쓰도록 카드 높이 해제 */
+  .study-card{min-height:0;padding:20px 18px;gap:10px}
+  .study-word{font-size:1.9rem}
+  .study-hidden{padding:14px}
+  .quiz-q{margin:10px 0 14px;font-size:1.4rem}
+  /* 넓은 가로폭 활용: 보기 4개를 2열로 */
+  .quiz-opts{grid-template-columns:1fr 1fr}
+  .modal-back{padding:14px}
+  .modal{max-height:92vh;overflow-y:auto}
+}
+/* 태블릿/데스크톱 가로: 보기와 통계를 넓게 */
+@media (orientation:landscape) and (min-width:900px){
+  main{max-width:1000px}
+  .quiz-opts{grid-template-columns:1fr 1fr}
+}
 </style>
 </head>
 <body>
