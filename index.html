@@ -413,6 +413,7 @@ pre{
   <div class="logo"><span class="leaf">🌱</span>Word Forest</div>
   <div class="streak-pill" id="streakPill" title="연속 학습">🔥 <span id="streakTop">0</span>일</div>
   <div class="streak-pill" id="leafPill" title="잎사귀" style="margin-left:6px">🍃 <span id="leafTop">0</span></div>
+  <button class="btn-auth" id="rotateBtn" style="margin-left:6px" title="가로 보기 고정 / 해제">⟳ 가로</button>
   <button class="btn-auth" id="installBtn" style="display:none;margin-left:6px" title="앱으로 설치">⬇ 앱 설치</button>
   <div id="authArea"></div>
 </header>
@@ -2336,6 +2337,37 @@ async function initFirebase(){
     renderAuth();
   }
 }
+
+/* ================= 화면 방향 ================= */
+/* 예전에 세로 고정으로 설치된 앱이라면 잠금을 풀어 줌 */
+try{ screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); }catch(e){}
+
+const rotBtn=$('rotateBtn');
+if(!(screen.orientation && screen.orientation.lock)){
+  rotBtn.style.display='none';           // 지원하지 않는 환경(PC 등)에서는 숨김
+}
+function inFullscreen(){ return !!(document.fullscreenElement||document.webkitFullscreenElement); }
+function syncRotBtn(){ rotBtn.textContent = inFullscreen() ? '⟲ 해제' : '⟳ 가로'; }
+document.addEventListener('fullscreenchange', syncRotBtn);
+rotBtn.addEventListener('click', async ()=>{
+  try{
+    if(inFullscreen()){
+      try{ screen.orientation.unlock(); }catch(e){}
+      if(document.exitFullscreen) await document.exitFullscreen();
+    }else{
+      // 안드로이드는 전체화면 상태에서만 방향 고정이 가능해요
+      const el=document.documentElement;
+      const req=el.requestFullscreen||el.webkitRequestFullscreen;
+      if(req) await req.call(el);
+      await screen.orientation.lock('landscape');
+    }
+  }catch(e){
+    toast('이 기기에서는 가로 고정을 지원하지 않아요 · 시스템 회전 설정을 확인해 주세요');
+    try{ if(document.exitFullscreen && inFullscreen()) await document.exitFullscreen(); }catch(_){}
+  }
+  syncRotBtn();
+});
+syncRotBtn();
 
 /* ================= PWA (앱으로 설치 / 오프라인) ================= */
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
