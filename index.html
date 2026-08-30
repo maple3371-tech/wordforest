@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Word Forest — 영어 단어 학습</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#293E3F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Word Forest">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./favicon-32.png" sizes="32x32">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
 <style>
 :root{
@@ -377,6 +385,8 @@ pre{
 <header>
   <div class="logo"><span class="leaf">🌱</span>Word Forest</div>
   <div class="streak-pill" id="streakPill" title="연속 학습">🔥 <span id="streakTop">0</span>일</div>
+  <div class="streak-pill" id="leafPill" title="잎사귀" style="margin-left:6px">🍃 <span id="leafTop">0</span></div>
+  <button class="btn-auth" id="installBtn" style="display:none;margin-left:6px" title="앱으로 설치">⬇ 앱 설치</button>
   <div id="authArea"></div>
 </header>
 
@@ -400,11 +410,15 @@ pre{
       <div class="streak-info">
         <div id="todayGoalText" style="font-weight:700">오늘 0 / 10 단어</div>
         <div class="progress-wrap"><div class="progress-bar" id="todayBar" style="width:0%"></div></div>
+        <div id="todayQuizText" style="font-weight:700;margin-top:8px">오늘 0 / 20 문제</div>
+        <div class="progress-wrap"><div class="progress-bar" id="todayQuizBar" style="width:0%"></div></div>
         <div style="font-size:.82rem;opacity:.8;margin-top:8px">
-          하루 10개 이상 암기하면 그날 학습으로 인정 · 하루는 쉬어도 OK, 이틀 연속 빠지면 초기화
+          단어 10개 <b>또는</b> 문제 20개를 채우면 그날 학습 인정 · 하루는 쉬어도 OK, 이틀 연속 빠지면 초기화
         </div>
       </div>
     </div>
+
+    <div class="card" id="shopCard"></div>
 
     <div class="card">
       <h2>최근 7일</h2>
@@ -449,6 +463,10 @@ pre{
         <button class="btn teal" onclick="printBook()">🖨 단어장 PDF로 뽑기</button>
       </div>
       <div class="muted" style="margin-top:6px">예문·예문 뜻·메모까지 A4에 보기 좋게 정리돼요 (단어가 페이지 경계에서 잘리지 않아요)</div>
+      <div class="row" style="margin-top:10px;padding-top:10px;border-top:1.5px solid var(--line)">
+        <button class="btn green" onclick="openImport()">📥 파일로 단어장 가져오기 (JSON/CSV)</button>
+        <button class="btn ghost" onclick="exportJSON()">📤 내 단어장 내보내기</button>
+      </div>
     </div>
     <div class="group-list" id="groupList"></div>
     <div id="bookBody"></div>
@@ -574,6 +592,76 @@ pre{
   </div>
 </div>
 
+<!-- 단어장 가져오기 모달 -->
+<div class="modal-back" id="importModal">
+  <div class="modal wide">
+    <h2>📥 단어장 가져오기<button class="close-x" onclick="document.getElementById('importModal').classList.remove('open')">✕</button></h2>
+
+    <div class="bulk-head" style="display:block">
+      <b>AI에게 이렇게 부탁하세요</b>
+      <p class="muted" style="margin:6px 0">아래 프롬프트를 복사해서 단어 파일(사진·PDF·엑셀 등)과 함께 AI에게 주면 바로 쓸 수 있는 JSON을 만들어 줘요.</p>
+      <button class="btn teal sm" onclick="copyPrompt()">📋 AI용 프롬프트 복사하기</button>
+    </div>
+
+    <details style="margin-bottom:14px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--slate);padding:6px 0">📄 JSON 형식 설명 보기</summary>
+      <p class="muted" style="margin:6px 0">groups 안에 DAY/CHAPTER를, words 안에 단어를 넣어요. senses(뜻)는 여러 개 가능하고 뜻마다 예문이 따로 붙어요.</p>
+      <pre id="formatSample">{
+  "groups": [
+    {
+      "name": "DAY 1",
+      "words": [
+        {
+          "word": "account for",
+          "memo": "explain과 유의어",
+          "senses": [
+            {
+              "meaning": "(이유 등을) 설명하다",
+              "examples": [
+                { "en": "He could not account for his absence.",
+                  "ko": "그는 결석 이유를 설명하지 못했다." }
+              ]
+            },
+            {
+              "meaning": "(부분·비율을) 차지하다",
+              "examples": [
+                { "en": "Exports account for 60% of sales.",
+                  "ko": "수출이 매출의 60%를 차지한다." }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}</pre>
+      <p class="muted">간단 형식도 됩니다: <code>{"word":"abundant","meaning":"풍부한","examples":[{"en":"...","ko":"..."}]}</code><br>
+      CSV/TSV도 가능해요 — 각 줄에 <code>단어, 뜻, 영어예문, 예문뜻, 메모</code> 순서.</p>
+    </details>
+
+    <div class="form-field">
+      <label>파일 선택 (.json / .csv / .txt)</label>
+      <input type="file" id="importFile" accept=".json,.csv,.tsv,.txt" onchange="readImportFile(event)">
+    </div>
+    <div class="form-field">
+      <label>또는 내용 붙여넣기</label>
+      <textarea id="importText" rows="7" placeholder='여기에 JSON이나 CSV를 붙여넣으세요' style="resize:vertical"></textarea>
+    </div>
+    <div class="form-field">
+      <label>추가할 위치</label>
+      <select id="importTarget">
+        <option value="file">파일에 적힌 DAY/CHAPTER 이름 그대로</option>
+        <option value="current">지금 열려 있는 그룹에 모두 넣기</option>
+      </select>
+    </div>
+    <div id="importPreview"></div>
+    <div class="bulk-foot">
+      <button class="btn ghost" onclick="previewImport()">미리보기</button>
+      <button class="btn green" onclick="doImport()">가져오기</button>
+    </div>
+  </div>
+</div>
+
 <!-- 단어 대량 추가 모달 -->
 <div class="modal-back" id="bulkModal">
   <div class="modal wide">
@@ -641,19 +729,29 @@ const FIREBASE_CONFIG = {
 
 /* ================= 상태 ================= */
 const LS_KEY = 'vocabForest.v1';
-const DAILY_GOAL = 10;
+const DAILY_GOAL = 10;      // 하루 단어 목표
+const QUIZ_GOAL = 20;       // 하루 문제 목표
+const REPAIR_COST = 30;     // 기록 복구권 가격(잎)
+const LEAF = { word:2, correct:1, goal:10 };  // 잎 획득량
 let state = load();
 let user = null, db = null, fb = null, unsubscribe = null;
 let saveTimer = null;
 
 function blank(){
-  return { groups: [], daily: {}, tests: [], progress: {}, wrongs: {}, confusedLog: {}, updatedAt: 0 };
+  return { groups: [], daily: {}, dailyQuiz: {}, tests: [], progress: {}, wrongs: {},
+           confusedLog: {}, repaired: {}, bonusGiven: {}, leaves: 0, items: {restore:0}, updatedAt: 0 };
 }
 /* 구버전(단일 뜻) 데이터를 다의어 구조(senses)로 변환 */
 function migrate(d){
   if(!d.progress || typeof d.progress!=='object') d.progress={};
   if(!d.wrongs || typeof d.wrongs!=='object') d.wrongs={};
   if(!d.confusedLog || typeof d.confusedLog!=='object') d.confusedLog={};
+  if(!d.dailyQuiz || typeof d.dailyQuiz!=='object') d.dailyQuiz={};
+  if(!d.repaired || typeof d.repaired!=='object') d.repaired={};
+  if(!d.bonusGiven || typeof d.bonusGiven!=='object') d.bonusGiven={};
+  if(typeof d.leaves!=='number') d.leaves=0;
+  if(!d.items || typeof d.items!=='object') d.items={restore:0};
+  if(typeof d.items.restore!=='number') d.items.restore=0;
   (d.groups||[]).forEach(g=>{
     (g.words||[]).forEach(w=>{
       if(typeof w.memorized!=='boolean') w.memorized=false;
@@ -802,8 +900,13 @@ function findFormInSentence(sentence, word){
   return m ? m[1] : null;
 }
 
-/* ================= 연속 학습(스트릭) ================= */
-function isStudied(dateStr){ return (state.daily[dateStr]||[]).length >= DAILY_GOAL; }
+/* ================= 연속 학습(스트릭) & 잎사귀 ================= */
+const wordCountOn = d => (state.daily[d]||[]).length;
+const quizCountOn = d => (state.dailyQuiz||{})[d]||0;
+/* 그날 학습 인정: 단어 10개 이상 OR 문제 20개 이상 OR 복구권 사용 */
+function isStudied(dateStr){
+  return !!(state.repaired||{})[dateStr] || wordCountOn(dateStr)>=DAILY_GOAL || quizCountOn(dateStr)>=QUIZ_GOAL;
+}
 function calcStreak(){
   let streak = 0, miss = 0;
   if(isStudied(today())) streak = 1;
@@ -813,6 +916,15 @@ function calcStreak(){
     else { miss++; if(miss>=2) break; }
   }
   return streak;
+}
+function addLeaves(n){ state.leaves=(state.leaves||0)+n; }
+/* 목표 달성 시 보너스 잎 (하루 한 번) */
+function checkDailyGoal(){
+  const t=today();
+  if(state.bonusGiven[t] || !isStudied(t)) return;
+  state.bonusGiven[t]=true;
+  addLeaves(LEAF.goal);
+  toast(`🎉 오늘 학습 목표 달성! 🍃+${LEAF.goal} · 연속 기록이 이어져요`);
 }
 /* 헷갈림 표시 + 날짜별 누적 기록 */
 function markConfused(wordId){
@@ -826,16 +938,76 @@ function markConfused(wordId){
   if(!state.confusedLog[t]) state.confusedLog[t]=[];
   if(!state.confusedLog[t].includes(wordId)) state.confusedLog[t].push(wordId);
 }
-function markMemorized(wordId){  const w=findWord(wordId);
+function markMemorized(wordId){
+  const w=findWord(wordId);
+  const isNew = w && !w.memorized;
   if(w){ w.memorized=true; w.memorizedAt=Date.now(); }
+  if(isNew) addLeaves(LEAF.word);      // 새로 외운 단어만 잎 지급
   const t = today();
   if(!state.daily[t]) state.daily[t] = [];
-  if(!state.daily[t].includes(wordId)){
-    state.daily[t].push(wordId);
-    const n = state.daily[t].length;
-    if(n === DAILY_GOAL) toast('🎉 오늘 학습 목표 달성! 연속 기록이 이어져요');
-  }
+  if(!state.daily[t].includes(wordId)) state.daily[t].push(wordId);
+  checkDailyGoal();
 }
+/* 문제를 풀 때마다 호출 — 하루 20문제면 그날 학습 인정 */
+function countQuizAnswer(correct){
+  const t=today();
+  state.dailyQuiz[t]=(state.dailyQuiz[t]||0)+1;
+  if(correct) addLeaves(LEAF.correct);
+  checkDailyGoal();
+}
+
+/* ================= 잎사귀 상점 & 기록 복구권 ================= */
+/* 최근 30일 중 학습이 비어 기록이 끊긴 날짜들 (오늘 제외) */
+function repairableDates(){
+  const out=[];
+  for(let i=1;i<=30;i++){
+    const d=daysAgo(i);
+    if(!isStudied(d)) out.push(d);
+  }
+  return out;
+}
+function renderShop(){
+  const card=$('shopCard'); if(!card) return;
+  const leaves=state.leaves||0, tickets=state.items?.restore||0;
+  const gaps=repairableDates().slice(0,5);
+  card.innerHTML=`
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <h2 style="margin:0">🍃 잎사귀 상점</h2>
+      <span class="chip">보유 ${leaves}잎 · 복구권 ${tickets}장</span>
+    </div>
+    <p class="muted" style="margin-bottom:10px">
+      단어 1개 암기 +${LEAF.word}잎 · 문제 1개 정답 +${LEAF.correct}잎 · 하루 목표 달성 +${LEAF.goal}잎
+    </p>
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn ${leaves>=REPAIR_COST?'green':'ghost'}" onclick="buyRestore()" ${leaves<REPAIR_COST?'disabled':''}>
+        🎟️ 기록 복구권 구매 (${REPAIR_COST}잎)
+      </button>
+      ${leaves<REPAIR_COST?`<span class="muted">${REPAIR_COST-leaves}잎 더 모으면 살 수 있어요</span>`:''}
+    </div>
+    ${tickets>0 ? (gaps.length ? `
+      <div class="goal-note" style="margin:0 0 8px">복구할 날짜를 고르세요 · 그날이 학습한 것으로 인정돼 연속 기록이 이어져요</div>
+      <div class="row">
+        ${gaps.map(d=>`<button class="btn teal sm" onclick="useRestore('${d}')">${dateLabel(d)} 복구</button>`).join('')}
+      </div>`
+      : `<p class="muted">복구할 빈 날짜가 없어요. 기록이 잘 이어지고 있네요! 🌿</p>`)
+    : `<p class="muted">복구권을 사면 빠진 날짜 하루를 되살려 연속 기록을 이어갈 수 있어요.</p>`}`;
+}
+window.buyRestore = function(){
+  if((state.leaves||0) < REPAIR_COST) return toast('잎사귀가 부족해요');
+  if(!confirm(`잎사귀 ${REPAIR_COST}개로 기록 복구권 1장을 살까요?`)) return;
+  state.leaves-=REPAIR_COST;
+  state.items.restore=(state.items.restore||0)+1;
+  save();
+  toast('🎟️ 기록 복구권을 구매했어요');
+};
+window.useRestore = function(dateStr){
+  if((state.items?.restore||0)<1) return toast('복구권이 없어요');
+  if(!confirm(`${dateLabel(dateStr)}을 학습한 날로 복구할까요? (복구권 1장 사용)`)) return;
+  state.items.restore--;
+  state.repaired[dateStr]=true;
+  save();
+  toast(`🎟️ ${dateLabel(dateStr)} 기록을 복구했어요 · 연속 ${calcStreak()}일`);
+};
 
 /* ================= 렌더: 공통 ================= */
 function renderAll(){
@@ -855,20 +1027,24 @@ function renderHome(){
   const s = calcStreak();
   $('streakNum').textContent = s;
   $('streakTop').textContent = s;
-  const n = (state.daily[today()]||[]).length;
+  $('leafTop').textContent = state.leaves||0;
+  const n = wordCountOn(today()), qn = quizCountOn(today());
   $('todayGoalText').textContent = `오늘 ${n} / ${DAILY_GOAL} 단어 ${n>=DAILY_GOAL?'✅':''}`;
   $('todayBar').style.width = Math.min(100, n/DAILY_GOAL*100) + '%';
+  $('todayQuizText').textContent = `오늘 ${qn} / ${QUIZ_GOAL} 문제 ${qn>=QUIZ_GOAL?'✅':''}`;
+  $('todayQuizBar').style.width = Math.min(100, qn/QUIZ_GOAL*100) + '%';
 
   const labels=['일','월','화','수','목','금','토'];
   let html='';
   for(let i=6;i>=0;i--){
     const ds=daysAgo(i), d=new Date(); d.setDate(d.getDate()-i);
-    const done=isStudied(ds);
+    const done=isStudied(ds), rep=!!(state.repaired||{})[ds];
     html+=`<div class="week-day ${done?'done':''} ${i===0?'today':''}">
-      <div class="dot">${done?'🌿':''}</div>
+      <div class="dot">${rep?'🎟️':done?'🌿':''}</div>
       <div class="lbl">${i===0?'오늘':labels[d.getDay()]}</div></div>`;
   }
   $('weekStrip').innerHTML = html;
+  renderShop();
 
   const words = allWords();
   const mem = words.filter(w=>w.memorized).length;
@@ -1056,6 +1232,8 @@ window.saveWord = function(){
   if(!senses.length) return toast('뜻을 1개 이상 입력해 주세요');
   if(senses.some(s=>!s.examples.length)) return toast('각 뜻마다 예문을 1개 이상 입력해 주세요');
   const memo=$('fMemo').value.trim();
+  const dups=findDuplicates(word, editingWordId);
+  if(dups.length && !confirm(dupMessage(dups, word))) return;
   const g=groupById(currentGroupId);
   if(editingWordId){
     const w=g.words.find(x=>x.id===editingWordId);
@@ -1146,7 +1324,21 @@ window.saveBulk = function(){
   const g = groupById(currentGroupId);
   if(!g) return;
   const blocks = [...document.querySelectorAll('#bulkList .bulk-block')];
-  let saved = 0, partial = 0;
+  let saved = 0, partial = 0, skipped = 0;
+  // 먼저 중복 검사 — 한 번에 물어보기
+  const dupBlocks=[];
+  blocks.forEach(b=>{
+    const word=b.querySelector('.b-word').value.trim();
+    if(word && findDuplicates(word).length) dupBlocks.push(word);
+  });
+  let dupChoice='ask';
+  if(dupBlocks.length){
+    const list=[...new Set(dupBlocks)].slice(0,10).join(', ');
+    dupChoice = confirm(
+      `이미 등록된 단어가 ${dupBlocks.length}개 있어요.\n\n${list}${dupBlocks.length>10?' …':''}\n\n` +
+      `[확인] 중복이어도 그대로 추가\n[취소] 중복은 건너뛰고 나머지만 추가`
+    ) ? 'add' : 'skip';
+  }
   blocks.forEach(b=>{
     const word = b.querySelector('.b-word').value.trim();
     const senses = [...b.querySelectorAll('.b-sense-list > .sense-box')].map(s=>({
@@ -1158,22 +1350,172 @@ window.saveBulk = function(){
     b.classList.remove('incomplete');
     if(!word && !senses.length){ b.remove(); return; }              // 빈 블록: 조용히 제거
     if(!word || !senses.length){ partial++; b.classList.add('incomplete'); return; } // 반쪽 블록: 남겨둠
+    if(dupChoice==='skip' && findDuplicates(word).length){ skipped++; b.remove(); return; }
     const memo = b.querySelector('.b-memo').value.trim();
-    g.words.push({id:uid(), word, senses, memo, confusing:false});
+    g.words.push({id:uid(), word, senses, memo, confusing:false, memorized:false, everConfused:false, confusedCount:0});
     saved++;
     b.remove();
   });
   if(saved) save();
+  const skipMsg = skipped?` · 중복 ${skipped}개 건너뜀`:'';
   if(partial){
-    toast(`${saved}개 저장 · 단어/뜻이 비어있는 ${partial}개 블록은 남겨뒀어요`);
+    toast(`${saved}개 저장${skipMsg} · 단어/뜻이 비어있는 ${partial}개 블록은 남겨뒀어요`);
     // 남은 블록 번호 다시 매기기
     [...document.querySelectorAll('#bulkList .bulk-block')].forEach((b,i)=>{
       b.querySelector('.bulk-idx').textContent = i+1;
     });
   }else{
     $('bulkModal').classList.remove('open');
-    toast(saved ? `단어 ${saved}개를 추가했어요 🌱` : '입력된 블록이 없어요');
+    toast(saved ? `단어 ${saved}개를 추가했어요 🌱${skipMsg}` : (skipped?`중복 ${skipped}개를 건너뛰었어요`:'입력된 블록이 없어요'));
   }
+};
+
+/* ================= 가져오기 / 내보내기 ================= */
+const AI_PROMPT = `아래 단어 자료를 "Word Forest" 앱에서 쓸 JSON으로 변환해 줘.
+
+규칙:
+- 최상위는 {"groups":[...]} 형태.
+- groups의 각 항목은 {"name": "DAY 1", "words":[...]}. name은 DAY나 CHAPTER 이름.
+- words의 각 항목은 {"word":"영어단어", "memo":"메모(없으면 생략)", "senses":[...]}.
+- senses는 뜻 목록. 뜻이 여러 개면 각각 따로 넣고, 뜻마다 예문을 따로 붙여 줘.
+- senses의 각 항목은 {"meaning":"한글 뜻", "examples":[{"en":"영어 예문","ko":"예문 한글 뜻"}]}.
+- 예문은 각 뜻마다 1개 이상. 자료에 예문이 없으면 그 뜻에 맞는 자연스러운 예문을 새로 만들어 줘.
+- 예문 안에는 반드시 해당 단어(시제·복수 변형 가능)가 들어가야 해.
+- 설명이나 코드블록 없이 JSON만 출력해 줘.
+
+예시:
+{"groups":[{"name":"DAY 1","words":[{"word":"account for","senses":[
+ {"meaning":"(이유 등을) 설명하다","examples":[{"en":"He could not account for his absence.","ko":"그는 결석 이유를 설명하지 못했다."}]},
+ {"meaning":"(부분·비율을) 차지하다","examples":[{"en":"Exports account for 60% of sales.","ko":"수출이 매출의 60%를 차지한다."}]}]}]}]}
+
+변환할 자료:`;
+
+window.openImport = function(){
+  $('importText').value=''; $('importPreview').innerHTML=''; $('importFile').value='';
+  $('importModal').classList.add('open');
+};
+window.copyPrompt = function(){
+  navigator.clipboard.writeText(AI_PROMPT)
+    .then(()=>toast('프롬프트를 복사했어요 · AI에게 붙여넣고 파일을 함께 주세요'))
+    .catch(()=>{
+      const t=$('importText'); t.value=AI_PROMPT; t.select();
+      toast('복사가 막혀 있어요 · 아래 칸의 내용을 직접 복사해 주세요');
+    });
+};
+window.readImportFile = function(ev){
+  const f=ev.target.files?.[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ $('importText').value=r.result; previewImport(); };
+  r.onerror=()=>toast('파일을 읽지 못했어요');
+  r.readAsText(f, 'utf-8');
+};
+/* 여러 형식을 공통 구조 [{name, words:[{word,memo,senses}]}] 로 변환 */
+function parseImport(text){
+  let raw=(text||'').trim();
+  if(!raw) throw new Error('내용이 비어 있어요');
+  // AI가 ```json 코드블록으로 감싸 준 경우 벗겨내기
+  if(raw.startsWith('```')) raw=raw.replace(/^```[a-zA-Z]*\s*/,'').replace(/```\s*$/,'').trim();
+  // 1) JSON
+  if(raw.startsWith('{') || raw.startsWith('[')){
+    const data=JSON.parse(raw);
+    const groups = Array.isArray(data) ? [{name:'가져온 단어', words:data}]
+                 : data.groups ? data.groups
+                 : data.words ? [{name:data.name||'가져온 단어', words:data.words}]
+                 : (()=>{throw new Error('groups 또는 words를 찾을 수 없어요');})();
+    return groups.map(g=>({
+      name: String(g.name||'가져온 단어').trim(),
+      words: (g.words||[]).map(normalizeImportWord).filter(Boolean)
+    })).filter(g=>g.words.length);
+  }
+  // 2) CSV / TSV: 단어, 뜻, 예문, 예문뜻, 메모
+  const sep = raw.includes('\t') ? '\t' : ',';
+  const rows = raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean)
+    .map(l=>l.split(sep).map(c=>c.trim().replace(/^"|"$/g,'')));
+  const start = /단어|word/i.test(rows[0]?.[0]||'') && /뜻|meaning/i.test(rows[0]?.[1]||'') ? 1 : 0;
+  const words = rows.slice(start).map(c=>normalizeImportWord({
+    word:c[0], meaning:c[1], examples:[{en:c[2]||'', ko:c[3]||''}], memo:c[4]||''
+  })).filter(Boolean);
+  if(!words.length) throw new Error('읽을 수 있는 줄이 없어요');
+  return [{name:'가져온 단어', words}];
+}
+function normalizeImportWord(w){
+  if(!w) return null;
+  const word=String(w.word||w.영어||w.단어||'').trim();
+  if(!word) return null;
+  let senses=[];
+  if(Array.isArray(w.senses)&&w.senses.length){
+    senses=w.senses.map(s=>({
+      meaning:String(s.meaning||s.뜻||'').trim(),
+      examples:(s.examples||[]).map(e=>({en:String(e.en||e.영어||'').trim(), ko:String(e.ko||e.한글||'').trim()}))
+                               .filter(e=>e.en||e.ko)
+    })).filter(s=>s.meaning);
+  }else{
+    const meanings = Array.isArray(w.meanings) ? w.meanings : [w.meaning||w.뜻];
+    const exs=(w.examples||[]).map(e=> typeof e==='string' ? {en:e,ko:''}
+                : {en:String(e.en||'').trim(), ko:String(e.ko||'').trim()}).filter(e=>e.en||e.ko);
+    senses = meanings.filter(Boolean).map((m,i)=>({meaning:String(m).trim(), examples: i===0?exs:[]}));
+  }
+  if(!senses.length) return null;
+  return { word, memo:String(w.memo||w.메모||'').trim(), senses };
+}
+window.previewImport = function(){
+  const box=$('importPreview');
+  try{
+    const groups=parseImport($('importText').value);
+    const total=groups.reduce((n,g)=>n+g.words.length,0);
+    const dupCount=groups.reduce((n,g)=>n+g.words.filter(w=>findDuplicates(w.word).length).length,0);
+    box.innerHTML=`<div class="goal-note" style="text-align:left">
+      ✅ 그룹 ${groups.length}개 · 단어 ${total}개를 읽었어요${dupCount?` · 이미 있는 단어 ${dupCount}개 포함`:''}
+      <div class="muted" style="margin-top:6px">${groups.map(g=>`${esc(g.name)}(${g.words.length})`).join(' · ')}</div>
+      <div class="muted" style="margin-top:4px">예: ${groups[0].words.slice(0,3).map(w=>esc(w.word)).join(', ')}…</div>
+    </div>`;
+    return groups;
+  }catch(e){
+    box.innerHTML=`<div class="goal-note" style="background:#F9ECE8;color:var(--danger);text-align:left">
+      ⚠️ 읽지 못했어요: ${esc(e.message)}<br>
+      <span class="muted">형식 설명을 확인하거나, AI용 프롬프트로 파일을 다시 변환해 보세요.</span></div>`;
+    return null;
+  }
+};
+window.doImport = function(){
+  const groups=previewImport();
+  if(!groups) return;
+  const toCurrent = $('importTarget').value==='current';
+  if(toCurrent && !groupById(currentGroupId)) return toast('먼저 그룹을 만들거나 선택해 주세요');
+  const allDups = groups.flatMap(g=>g.words.filter(w=>findDuplicates(w.word).length).map(w=>w.word));
+  let skipDup=false;
+  if(allDups.length){
+    skipDup = !confirm(
+      `이미 등록된 단어가 ${allDups.length}개 있어요.\n\n${[...new Set(allDups)].slice(0,10).join(', ')}${allDups.length>10?' …':''}\n\n`+
+      `[확인] 중복이어도 그대로 추가\n[취소] 중복은 건너뛰고 나머지만 추가`);
+  }
+  let added=0, skipped=0;
+  groups.forEach(gi=>{
+    let g = toCurrent ? groupById(currentGroupId) : state.groups.find(x=>x.name===gi.name);
+    if(!g){ g={id:uid(), name:gi.name, words:[]}; state.groups.push(g); }
+    gi.words.forEach(w=>{
+      if(skipDup && findDuplicates(w.word).length){ skipped++; return; }
+      g.words.push({id:uid(), word:w.word, memo:w.memo, senses:w.senses,
+                    confusing:false, memorized:false, everConfused:false, confusedCount:0});
+      added++;
+    });
+  });
+  save();
+  $('importModal').classList.remove('open');
+  toast(`단어 ${added}개를 가져왔어요 🌱${skipped?` · 중복 ${skipped}개 건너뜀`:''}`);
+};
+window.exportJSON = function(){
+  const data={ groups: state.groups.map(g=>({
+    name:g.name,
+    words:g.words.map(w=>({word:w.word, memo:w.memo||undefined, senses:w.senses}))
+  }))};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`word-forest-${today()}.json`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  toast('단어장을 내보냈어요');
 };
 
 /* ================= 범위 select 공통 ================= */
@@ -1230,6 +1572,20 @@ function filterLabel(f){
 function findWord(id){
   for(const g of state.groups){ const w=g.words.find(x=>x.id===id); if(w) return w; }
   return null;
+}
+/* 같은 철자의 단어가 이미 있는지 (대소문자·공백 무시) */
+function findDuplicates(word, exceptId){
+  const key=(word||'').trim().toLowerCase().replace(/\s+/g,' ');
+  const out=[];
+  state.groups.forEach(g=>g.words.forEach(w=>{
+    if(w.id===exceptId) return;
+    if((w.word||'').trim().toLowerCase().replace(/\s+/g,' ')===key) out.push({...w, groupName:g.name});
+  }));
+  return out;
+}
+function dupMessage(dups, word){
+  const where=dups.map(d=>`· ${d.groupName}: ${(d.senses||[]).map(s=>s.meaning).join(' / ')}`).join('\n');
+  return `"${word}"는 이미 등록되어 있어요.\n\n${where}\n\n그래도 추가할까요?`;
 }
 
 /* ================= 암기 모드 ================= */
@@ -1716,6 +2072,7 @@ window.answerQuiz = function(i){
   const q=quiz.questions[quiz.idx];
   const isCorrect = q.choices[i]===q.answer;
   if(isCorrect){ quiz.correct++; recordRight(q); } else { recordWrong(q); }
+  countQuizAnswer(isCorrect);
   syncState();
   q.choices.forEach((c,j)=>{
     const el=$('opt'+j); el.disabled=true;
@@ -1732,6 +2089,7 @@ window.answerBlank = function(){
   quiz.answered=true;
   const ok = val.toLowerCase()===q.answer.toLowerCase();
   if(ok){ quiz.correct++; recordRight(q); } else { recordWrong(q); }
+  countQuizAnswer(ok);
   syncState();
   const fb=$('blankFeedback');
   fb.innerHTML = ok
@@ -1951,6 +2309,34 @@ async function initFirebase(){
     renderAuth();
   }
 }
+
+/* ================= PWA (앱으로 설치 / 오프라인) ================= */
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW 등록 실패', e));
+  });
+}
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();
+  deferredPrompt=e;
+  const b=$('installBtn'); if(b) b.style.display='inline-block';
+});
+$('installBtn').addEventListener('click', async ()=>{
+  if(!deferredPrompt){
+    toast('브라우저 메뉴(⋮)에서 "앱 설치"를 눌러 주세요');
+    return;
+  }
+  deferredPrompt.prompt();
+  const {outcome}=await deferredPrompt.userChoice;
+  deferredPrompt=null;
+  $('installBtn').style.display='none';
+  if(outcome==='accepted') toast('앱으로 설치했어요 🌱');
+});
+window.addEventListener('appinstalled', ()=>{
+  $('installBtn').style.display='none';
+  toast('홈 화면에서 Word Forest를 열 수 있어요 🌱');
+});
 
 /* ================= 시작 ================= */
 renderAll();
