@@ -1,6 +1,6 @@
 /* Word Forest service worker — 오프라인에서도 앱이 열리게 해 줍니다.
    앱 파일을 수정했다면 아래 CACHE 버전 숫자를 올려 주세요 (v1 → v2 …). */
-const CACHE = 'word-forest-v1';
+const CACHE = 'word-forest-v2';
 const ASSETS = [
   './',
   './index.html',
